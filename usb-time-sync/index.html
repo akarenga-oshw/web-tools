@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>時刻合わせ — akarenga-oshw</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ground:#12100E;
+    --panel:#1B1815;
+    --line:#2C2723;
+    --brick:#B5402F;
+    --brick-dim:#6B2A21;
+    --text:#EDE6DD;
+    --muted:#8C837A;
+    --ok:#59A88C;
+    --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans:"IBM Plex Sans JP", system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+  }
+
+  *{box-sizing:border-box;}
+
+  html,body{margin:0;padding:0;}
+
+  body{
+    background:var(--ground);
+    color:var(--text);
+    font-family:var(--sans);
+    font-size:15px;
+    line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+    padding:32px 20px 80px;
+  }
+
+  .wrap{max-width:760px;margin:0 auto;}
+
+  /* ---- masthead ---------------------------------------------------- */
+
+  .masthead{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:16px;
+    flex-wrap:wrap;
+    padding-bottom:18px;
+    border-bottom:1px solid var(--line);
+  }
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin:0;
+  }
+  .masthead h1{
+    font-size:20px;
+    font-weight:600;
+    letter-spacing:.02em;
+    margin:2px 0 0;
+  }
+  .status{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    font-family:var(--mono);
+    font-size:12px;
+    letter-spacing:.06em;
+    color:var(--muted);
+  }
+  .dot{
+    width:7px;height:7px;border-radius:50%;
+    background:var(--muted);
+    flex:none;
+  }
+  .status[data-state="connected"]{color:var(--ok);}
+  .status[data-state="connected"] .dot{background:var(--ok);}
+  .status[data-state="busy"]{color:var(--brick);}
+  .status[data-state="busy"] .dot{background:var(--brick);}
+
+  /* ---- hero clock -------------------------------------------------- */
+
+  .clock{padding:40px 0 0;}
+  .clock .date{
+    font-family:var(--mono);
+    font-size:13px;
+    letter-spacing:.22em;
+    color:var(--muted);
+  }
+  .readout{
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-top:6px;
+  }
+  .hms{
+    font-family:var(--mono);
+    font-weight:600;
+    font-size:clamp(3.2rem,13vw,5.6rem);
+    line-height:.95;
+    letter-spacing:-.03em;
+    font-variant-numeric:tabular-nums;
+  }
+  .frac{
+    font-family:var(--mono);
+    font-weight:400;
+    font-size:clamp(1.1rem,4vw,1.7rem);
+    color:var(--brick);
+    font-variant-numeric:tabular-nums;
+  }
+  .zone{
+    font-family:var(--mono);
+    font-size:12px;
+    letter-spacing:.14em;
+    color:var(--muted);
+    margin-left:auto;
+    align-self:flex-end;
+    padding-bottom:8px;
+  }
+
+  /* ---- signature: the second boundary ------------------------------ */
+
+  .boundary{margin-top:26px;}
+  .track{
+    position:relative;
+    height:34px;
+    border-top:1px solid var(--line);
+    border-bottom:1px solid var(--line);
+    overflow:hidden;
+  }
+  .sweep{
+    position:absolute;
+    inset:0 auto 0 0;
+    width:0%;
+    background:linear-gradient(90deg,transparent,rgba(181,64,47,.14));
+    border-right:1px solid var(--brick-dim);
+  }
+  .boundary[data-armed="true"] .sweep{
+    background:linear-gradient(90deg,rgba(181,64,47,.05),rgba(181,64,47,.42));
+    border-right-color:var(--brick);
+  }
+  .ticks{position:absolute;inset:0;display:flex;}
+  .ticks span{
+    flex:1;
+    border-right:1px solid var(--line);
+  }
+  .ticks span:last-child{border-right:0;}
+  .ticks span:nth-child(4n+1){border-right-color:#3A342E;}
+  .boundary .caption{
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:.1em;
+    color:var(--muted);
+    padding-top:8px;
+  }
+  .boundary[data-armed="true"] .caption{color:var(--brick);}
+
+  /* ---- controls ---------------------------------------------------- */
+
+  .controls{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-top:32px;
+  }
+  button{
+    font-family:var(--sans);
+    font-size:14px;
+    font-weight:500;
+    letter-spacing:.04em;
+    color:var(--text);
+    background:transparent;
+    border:1px solid var(--line);
+    border-radius:2px;
+    padding:11px 22px;
+    cursor:pointer;
+    transition:border-color .15s, background .15s, color .15s;
+  }
+  button:hover:not(:disabled){border-color:#4A423B;}
+  button:focus-visible{outline:2px solid var(--brick);outline-offset:2px;}
+  button:disabled{opacity:.34;cursor:not-allowed;}
+  button.primary{
+    background:var(--brick);
+    border-color:var(--brick);
+    color:#FFF3EE;
+    font-weight:600;
+  }
+  button.primary:hover:not(:disabled){background:#C64936;border-color:#C64936;}
+
+  /* ---- options ----------------------------------------------------- */
+
+  .options{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+    gap:18px 26px;
+    margin-top:34px;
+    padding-top:26px;
+    border-top:1px solid var(--line);
+  }
+  .field label{
+    display:block;
+    font-family:var(--mono);
+    font-size:10px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin-bottom:7px;
+  }
+  select, input[type="number"]{
+    width:100%;
+    font-family:var(--mono);
+    font-size:13px;
+    color:var(--text);
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:2px;
+    padding:9px 10px;
+  }
+  select:focus-visible, input:focus-visible{outline:2px solid var(--brick);outline-offset:1px;}
+  .check{
+    display:flex;
+    align-items:flex-start;
+    gap:9px;
+    font-size:13px;
+    color:var(--text);
+    cursor:pointer;
+    line-height:1.5;
+  }
+  .check input{
+    accent-color:var(--brick);
+    margin:3px 0 0;
+    flex:none;
+    width:15px;height:15px;
+  }
+  .check span small{
+    display:block;
+    color:var(--muted);
+    font-size:11.5px;
+  }
+
+  /* ---- compare ----------------------------------------------------- */
+
+  .compare{
+    margin-top:34px;
+    padding-top:26px;
+    border-top:1px solid var(--line);
+  }
+  .compare-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    flex-wrap:wrap;
+  }
+  .compare-head h2{
+    font-family:var(--mono);
+    font-size:10px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:var(--muted);
+    font-weight:500;
+    margin:0;
+  }
+  .compare-head .acts{display:flex;align-items:center;gap:14px;}
+  .chip{
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:.06em;
+    color:var(--muted);
+    cursor:pointer;
+  }
+  .chip input{accent-color:var(--brick);width:14px;height:14px;margin:0;}
+  .compare-head button{
+    padding:3px 10px;
+    font-size:11px;
+    font-family:var(--mono);
+    letter-spacing:.08em;
+    color:var(--muted);
+  }
+  .stats{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+    gap:2px;
+    margin-top:16px;
+    background:var(--line);
+    border:1px solid var(--line);
+  }
+  .stat{background:var(--ground);padding:14px 16px;}
+  .stat .k{
+    display:block;
+    font-family:var(--mono);
+    font-size:10px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--muted);
+  }
+  .stat .v{
+    display:block;
+    font-family:var(--mono);
+    font-weight:600;
+    font-size:23px;
+    letter-spacing:-.01em;
+    font-variant-numeric:tabular-nums;
+    margin-top:5px;
+  }
+  .stat .u{
+    display:block;
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--muted);
+    letter-spacing:.06em;
+    margin-top:2px;
+  }
+  .stat[data-tone="ok"] .v{color:var(--ok);}
+  .stat[data-tone="warn"] .v{color:var(--brick);}
+  .spark{
+    display:block;
+    width:100%;
+    height:96px;
+    margin-top:18px;
+    border:1px solid var(--line);
+    border-left:0;border-right:0;
+  }
+  .spark .zero{stroke:#3A342E;stroke-dasharray:2 4;}
+  .spark .fit{stroke:var(--brick-dim);}
+  .spark .trace{stroke:var(--brick);fill:none;}
+  .compare .caption{
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    flex-wrap:wrap;
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:.08em;
+    color:var(--muted);
+    padding-top:8px;
+  }
+
+  /* ---- log --------------------------------------------------------- */
+
+  .log-head{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    margin:38px 0 0;
+    padding-top:26px;
+    border-top:1px solid var(--line);
+  }
+  .log-head h2{
+    font-family:var(--mono);
+    font-size:10px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:var(--muted);
+    font-weight:500;
+    margin:0;
+  }
+  .log-head button{
+    padding:3px 10px;
+    font-size:11px;
+    font-family:var(--mono);
+    letter-spacing:.08em;
+    color:var(--muted);
+  }
+  #log{
+    font-family:var(--mono);
+    font-size:12.5px;
+    line-height:1.85;
+    margin-top:12px;
+    max-height:270px;
+    overflow-y:auto;
+  }
+  .row{display:flex;gap:14px;}
+  .row .t{color:#5E564E;flex:none;font-variant-numeric:tabular-nums;}
+  .row .m{word-break:break-all;}
+  .row.tx .m{color:var(--text);}
+  .row.rx .m{color:var(--ok);}
+  .row.err .m{color:var(--brick);}
+  .row.sys .m{color:var(--muted);}
+  .empty{color:var(--muted);font-family:var(--mono);font-size:12.5px;margin-top:12px;}
+
+  /* ---- notice + sketch --------------------------------------------- */
+
+  .notice{
+    border:1px solid var(--brick-dim);
+    background:rgba(181,64,47,.07);
+    border-radius:2px;
+    padding:16px 18px;
+    margin-top:28px;
+    font-size:13.5px;
+  }
+  .notice strong{color:var(--brick);font-weight:600;}
+  .notice.hidden{display:none;}
+
+  details{
+    margin-top:34px;
+    padding-top:26px;
+    border-top:1px solid var(--line);
+  }
+  summary{
+    font-family:var(--mono);
+    font-size:10px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:var(--muted);
+    cursor:pointer;
+  }
+  summary:focus-visible{outline:2px solid var(--brick);outline-offset:3px;}
+  pre{
+    font-family:var(--mono);
+    font-size:12.5px;
+    line-height:1.75;
+    color:#C8C0B7;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:2px;
+    padding:16px;
+    overflow-x:auto;
+    margin:14px 0 0;
+  }
+  details p{color:var(--muted);font-size:13px;margin:14px 0 0;}
+
+  @media (prefers-reduced-motion: reduce){
+    *{transition:none !important;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">akarenga-oshw · RA4M1</p>
+      <h1>時刻合わせ</h1>
+    </div>
+    <div class="status" id="status" data-state="idle"><span class="dot"></span><span id="statusText">未接続</span></div>
+  </header>
+
+  <div class="notice hidden" id="notice"></div>
+
+  <section class="clock">
+    <div class="date" id="date">————-——-——</div>
+    <div class="readout">
+      <span class="hms" id="hms">--:--:--</span>
+      <span class="frac" id="frac">.000</span>
+      <span class="zone" id="zone">JST · UTC+09:00</span>
+    </div>
+  </section>
+
+  <section class="boundary" id="boundary" data-armed="false">
+    <div class="track">
+      <div class="sweep" id="sweep"></div>
+      <div class="ticks" id="ticks"></div>
+    </div>
+    <div class="caption">
+      <span id="boundaryLabel">次の秒境界まで</span>
+      <span id="boundaryMs">— ms</span>
+    </div>
+  </section>
+
+  <div class="controls">
+    <button id="connect">基板を接続</button>
+    <button id="send" class="primary" disabled>時刻を送信</button>
+    <button id="disconnect" disabled>切断</button>
+  </div>
+
+  <section class="compare">
+    <div class="compare-head">
+      <h2>基板 ⇄ PC の照合</h2>
+      <div class="acts">
+        <label class="chip"><input type="checkbox" id="watch" checked>受信行を照合する</label>
+        <button id="resetDrift">基準をリセット</button>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat" id="statOffset"><span class="k">ずれ</span><span class="v" id="offsetV">—</span><span class="u">基板 − PC</span></div>
+      <div class="stat" id="statPpm"><span class="k">ドリフト</span><span class="v" id="ppmV">—</span><span class="u">ppm</span></div>
+      <div class="stat"><span class="k">日差換算</span><span class="v" id="dayV">—</span><span class="u">秒 / 日</span></div>
+      <div class="stat"><span class="k">サンプル</span><span class="v" id="nV">0</span><span class="u" id="spanV">未計測</span></div>
+    </div>
+    <svg class="spark" id="spark" viewBox="0 0 700 96" preserveAspectRatio="none" aria-label="ずれの推移">
+      <line class="zero" id="sparkZero" x1="0" y1="48" x2="700" y2="48" vector-effect="non-scaling-stroke"></line>
+      <line class="fit" id="sparkFit" x1="0" y1="48" x2="700" y2="48" vector-effect="non-scaling-stroke"></line>
+      <polyline class="trace" id="sparkTrace" points="" vector-effect="non-scaling-stroke"></polyline>
+    </svg>
+    <div class="caption">
+      <span id="sparkRange">基板からの出力を待っています</span>
+      <span id="sparkNote">縦軸 = ずれ / 横軸 = 経過</span>
+    </div>
+  </section>
+
+  <section class="options">
+    <div class="field">
+      <label for="baud">ボーレート</label>
+      <select id="baud">
+        <option>9600</option>
+        <option selected>115200</option>
+        <option>230400</option>
+        <option>460800</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="tz">送る時刻</label>
+      <select id="tz">
+        <option value="local" selected>ローカル(JST)のエポック</option>
+        <option value="utc">UTC エポック</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="prefix">コマンド書式</label>
+      <select id="prefix">
+        <option value="T\n" selected>T&lt;epoch&gt; + LF</option>
+        <option value="T\r\n">T&lt;epoch&gt; + CRLF</option>
+        <option value="\n">&lt;epoch&gt; のみ + LF</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="lead">送信リード (ms)</label>
+      <input type="number" id="lead" value="0" min="0" max="500" step="5">
+    </div>
+    <label class="check">
+      <input type="checkbox" id="atBoundary" checked>
+      <span>秒境界で送信する<small>次の 00 ミリ秒ちょうどに書き込みます</small></span>
+    </label>
+    <label class="check">
+      <input type="checkbox" id="useFilter">
+      <span>この基板の USB ID で絞り込む<small>スクリプト冒頭の VID/PID を使います</small></span>
+    </label>
+  </section>
+
+  <div class="log-head">
+    <h2>通信ログ</h2>
+    <button id="clearLog">消去</button>
+  </div>
+  <div id="log"></div>
+  <p class="empty" id="logEmpty">まだ送信していません。</p>
+
+  <details>
+    <summary>基板側のスケッチ</summary>
+<pre>#include "RTC.h"
+
+volatile bool tick = false;
+void onTick() { tick = true; }
+
+char buf[16];
+uint8_t len = 0;
+
+void setup() {
+  Serial.begin(115200);
+  RTC.begin();
+  RTC.setPeriodicCallback(onTick, Period::ONCE_EVERY_1_SEC);
+}
+
+void loop() {
+  // 1秒ごとに現在時刻を出力する(照合用)
+  if (tick) {
+    tick = false;
+    RTCTime now;
+    RTC.getTime(now);
+    Serial.println(now.getUnixTime());
+  }
+
+  // T&lt;epoch&gt; を受け取ったら RTC を合わせる(ブロックしない)
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n' || c == '\r') {
+      buf[len] = '\0';
+      if (len > 1 && buf[0] == 'T') {
+        RTCTime t;
+        t.setUnixTime(strtoul(buf + 1, nullptr, 10));
+        RTC.setTime(t);
+      }
+      len = 0;
+    } else if (len &lt; sizeof(buf) - 1) {
+      buf[len++] = c;
+    }
+  }
+}</pre>
+    <p><code>Serial.find()</code> と <code>parseInt()</code> は待ちが入って1秒ごとの出力を乱すので、受信は自前のバッファに変えています。「ローカル(JST)のエポック」を選ぶと RTC には JST がそのまま入ります。RTC を UTC で回すなら「UTC エポック」を選んでください。</p>
+  </details>
+
+</div>
+
+<script>
+// ── この基板の USB ID(CDC 側)────────────────────────────────
+// 「USB ID で絞り込む」を使うときに参照します。取得済みの値に置き換えてください。
+const USB_FILTER = { usbVendorId: 0x1209, usbProductId: 0x0001 };
+
+const $ = (id) => document.getElementById(id);
+const els = {
+  status: $('status'), statusText: $('statusText'), notice: $('notice'),
+  date: $('date'), hms: $('hms'), frac: $('frac'), zone: $('zone'),
+  boundary: $('boundary'), sweep: $('sweep'), ticks: $('ticks'),
+  boundaryLabel: $('boundaryLabel'), boundaryMs: $('boundaryMs'),
+  connect: $('connect'), send: $('send'), disconnect: $('disconnect'),
+  baud: $('baud'), tz: $('tz'), prefix: $('prefix'), lead: $('lead'),
+  atBoundary: $('atBoundary'), useFilter: $('useFilter'),
+  log: $('log'), logEmpty: $('logEmpty'), clearLog: $('clearLog'),
+  watch: $('watch'), resetDrift: $('resetDrift'),
+  offsetV: $('offsetV'), ppmV: $('ppmV'), dayV: $('dayV'), nV: $('nV'), spanV: $('spanV'),
+  statOffset: $('statOffset'), statPpm: $('statPpm'),
+  sparkZero: $('sparkZero'), sparkFit: $('sparkFit'), sparkTrace: $('sparkTrace'),
+  sparkRange: $('sparkRange'),
+};
+
+let port = null, reader = null, readLoop = null, armed = false, armTimer = null;
+
+// ── 目盛り ────────────────────────────────────────────────
+for (let i = 0; i < 20; i++) els.ticks.appendChild(document.createElement('span'));
+
+// ── タイムゾーン表示 ───────────────────────────────────────
+(function showZone() {
+  const off = -new Date().getTimezoneOffset();
+  const sign = off < 0 ? '-' : '+';
+  const h = String(Math.floor(Math.abs(off) / 60)).padStart(2, '0');
+  const m = String(Math.abs(off) % 60).padStart(2, '0');
+  const name = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local';
+  els.zone.textContent = `${name} · UTC${sign}${h}:${m}`;
+})();
+
+// ── 対応チェック ───────────────────────────────────────────
+if (!('serial' in navigator)) {
+  els.notice.classList.remove('hidden');
+  els.notice.innerHTML = '<strong>このブラウザは Web Serial に対応していません。</strong><br>Chrome か Edge で開いてください。Safari と Firefox は未対応です。ページは HTTPS(または localhost)で配信する必要があります。';
+  els.connect.disabled = true;
+}
+
+// ── 時計 ──────────────────────────────────────────────────
+const pad = (n, w = 2) => String(n).padStart(w, '0');
+
+function tick() {
+  const d = new Date();
+  els.date.textContent = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  els.hms.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const ms = d.getMilliseconds();
+  els.frac.textContent = '.' + pad(ms, 3);
+  els.sweep.style.width = (ms / 10) + '%';
+  if (!armed) els.boundaryMs.textContent = (1000 - ms) + ' ms';
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+// ── ログ ──────────────────────────────────────────────────
+function log(kind, message) {
+  els.logEmpty.style.display = 'none';
+  const d = new Date();
+  const row = document.createElement('div');
+  row.className = 'row ' + kind;
+  const t = document.createElement('span');
+  t.className = 't';
+  t.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+  const m = document.createElement('span');
+  m.className = 'm';
+  m.textContent = message;
+  row.append(t, m);
+  els.log.append(row);
+  els.log.scrollTop = els.log.scrollHeight;
+}
+
+els.clearLog.addEventListener('click', () => {
+  els.log.textContent = '';
+  els.logEmpty.style.display = '';
+});
+
+function setStatus(state, text) {
+  els.status.dataset.state = state;
+  els.statusText.textContent = text;
+}
+
+// ── 接続 ──────────────────────────────────────────────────
+els.connect.addEventListener('click', async () => {
+  try {
+    const opts = els.useFilter.checked ? { filters: [USB_FILTER] } : {};
+    port = await navigator.serial.requestPort(opts);
+    await port.open({ baudRate: Number(els.baud.value) });
+
+    const info = port.getInfo();
+    const id = info.usbVendorId
+      ? `VID ${info.usbVendorId.toString(16).padStart(4, '0')} / PID ${info.usbProductId.toString(16).padStart(4, '0')}`
+      : 'シリアルポート';
+    log('sys', `${id} を ${els.baud.value} bps で開きました`);
+
+    setStatus('connected', '接続済み');
+    els.connect.disabled = true;
+    els.send.disabled = false;
+    els.disconnect.disabled = false;
+    els.baud.disabled = true;
+    readLoop = listen();
+  } catch (e) {
+    if (e.name === 'NotFoundError') return;   // ダイアログを閉じただけ
+    log('err', `接続できません: ${e.message}`);
+  }
+});
+
+// ── 受信 ──────────────────────────────────────────────────
+async function listen() {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  try {
+    reader = port.readable.getReader();
+    while (true) {
+      const { value, done } = await reader.read();
+      const rxAt = Date.now();               // 到着した瞬間を測定基準にする
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let i;
+      while ((i = buffer.search(/\r?\n/)) >= 0) {
+        const line = buffer.slice(0, i).trim();
+        buffer = buffer.slice(i).replace(/^\r?\n/, '');
+        if (line) handleLine(line, rxAt);
+      }
+    }
+  } catch (e) {
+    log('err', `受信が途切れました: ${e.message}`);
+  } finally {
+    try { reader.releaseLock(); } catch {}
+    reader = null;
+  }
+}
+
+// ── 照合 ──────────────────────────────────────────────────
+// 基板が「自分の秒が変わった瞬間」に時刻を出力する前提で、
+// その行が届いた PC 時刻と突き合わせる。
+const MAX_SAMPLES = 900;
+let samples = [];
+
+// 「送る時刻」の選択と同じ基準で PC 側のエポックを作る
+function pcEpochMsAt(t) {
+  return els.tz.value === 'utc' ? t : t - new Date(t).getTimezoneOffset() * 60000;
+}
+
+function parseBoardTime(line) {
+  let m = line.match(/(?:^|[^\d.])(\d{9,11})(?![\d.])/);      // エポック秒
+  if (m) return Number(m[1]) * 1000;
+
+  m = line.match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/); // ISO 風
+  if (m) return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+
+  return null;
+}
+
+function handleLine(line, rxAt) {
+  const boardMs = els.watch.checked ? parseBoardTime(line) : null;
+  if (boardMs === null) { log('rx', '← ' + line); return; }
+
+  const offset = boardMs - pcEpochMsAt(rxAt);
+  if (Math.abs(offset) > 100 * 86400000) {      // 時刻に見えない数値は捨てる
+    log('rx', '← ' + line);
+    return;
+  }
+
+  samples.push({ t: rxAt, off: offset });
+  if (samples.length > MAX_SAMPLES) samples.shift();
+  log('rx', `← ${line}   ${fmtOffset(offset)}`);
+  render();
+}
+
+function fmtOffset(ms) {
+  const s = ms < 0 ? '-' : '+';
+  const a = Math.abs(ms);
+  return a < 1000 ? `${s}${Math.round(a)} ms` : `${s}${(a / 1000).toFixed(3)} s`;
+}
+
+function fmtSpan(sec) {
+  const m = Math.floor(sec / 60);
+  return m ? `${m}分${pad(Math.floor(sec % 60))}秒` : `${Math.floor(sec)}秒`;
+}
+
+// 最小二乗で ppm を出す(USB CDC の一定遅延は傾きに影響しない)
+function regression() {
+  const n = samples.length;
+  if (n < 3) return null;
+  const t0 = samples[0].t;
+  const span = (samples[n - 1].t - t0) / 1000;
+  if (span < 20) return null;
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (const p of samples) {
+    const x = (p.t - t0) / 1000, y = p.off;
+    sx += x; sy += y; sxx += x * x; sxy += x * y;
+  }
+  const den = n * sxx - sx * sx;
+  if (den <= 0) return null;
+  const slope = (n * sxy - sx * sy) / den;       // ms / 秒
+  const icept = (sy - slope * sx) / n;
+  return { slope, icept, ppm: slope * 1000, span, t0 };
+}
+
+function render() {
+  const n = samples.length;
+  els.nV.textContent = n;
+
+  if (!n) {
+    els.offsetV.textContent = '—';
+    els.ppmV.textContent = '—';
+    els.dayV.textContent = '—';
+    els.spanV.textContent = '未計測';
+    els.statOffset.dataset.tone = '';
+    els.statPpm.dataset.tone = '';
+    els.sparkTrace.setAttribute('points', '');
+    els.sparkFit.setAttribute('y1', 48); els.sparkFit.setAttribute('y2', 48);
+    els.sparkRange.textContent = '基板からの出力を待っています';
+    return;
+  }
+
+  const last = samples[n - 1].off;
+  els.offsetV.textContent = fmtOffset(last);
+  els.statOffset.dataset.tone = Math.abs(last) < 100 ? 'ok' : Math.abs(last) > 1000 ? 'warn' : '';
+
+  const span = (samples[n - 1].t - samples[0].t) / 1000;
+  els.spanV.textContent = fmtSpan(span);
+
+  const fit = regression();
+  if (fit) {
+    const sign = fit.ppm < 0 ? '-' : '+';
+    els.ppmV.textContent = sign + Math.abs(fit.ppm).toFixed(1);
+    els.dayV.textContent = sign + Math.abs(fit.ppm * 0.0864).toFixed(2);
+    els.statPpm.dataset.tone = Math.abs(fit.ppm) <= 20 ? 'ok' : Math.abs(fit.ppm) > 100 ? 'warn' : '';
+  } else {
+    els.ppmV.textContent = '—';
+    els.dayV.textContent = '—';
+    els.statPpm.dataset.tone = '';
+  }
+  drawSpark(fit);
+}
+
+function drawSpark(fit) {
+  const W = 700, H = 96, PAD = 8;
+  const n = samples.length;
+  const t0 = samples[0].t, t1 = samples[n - 1].t;
+  const dt = Math.max(1, t1 - t0);
+
+  let lo = Math.min(...samples.map(p => p.off));
+  let hi = Math.max(...samples.map(p => p.off));
+  if (hi - lo < 20) { const c = (hi + lo) / 2; lo = c - 10; hi = c + 10; }
+  const pad = (hi - lo) * 0.15;
+  lo -= pad; hi += pad;
+
+  const X = (t) => (n === 1 ? W : ((t - t0) / dt) * W);
+  const Y = (v) => PAD + (1 - (v - lo) / (hi - lo)) * (H - PAD * 2);
+
+  els.sparkTrace.setAttribute('points', samples.map(p => `${X(p.t).toFixed(1)},${Y(p.off).toFixed(1)}`).join(' '));
+
+  const zeroY = Y(0);
+  const zeroVisible = zeroY >= 0 && zeroY <= H;
+  els.sparkZero.setAttribute('y1', zeroVisible ? zeroY : -10);
+  els.sparkZero.setAttribute('y2', zeroVisible ? zeroY : -10);
+
+  if (fit) {
+    els.sparkFit.setAttribute('y1', Y(fit.icept));
+    els.sparkFit.setAttribute('y2', Y(fit.icept + fit.slope * (dt / 1000)));
+  } else {
+    els.sparkFit.setAttribute('y1', -10); els.sparkFit.setAttribute('y2', -10);
+  }
+
+  els.sparkRange.textContent = `${fmtOffset(lo)} 〜 ${fmtOffset(hi)}`;
+}
+
+function resetSamples(reason) {
+  samples = [];
+  render();
+  if (reason) log('sys', reason);
+}
+
+els.resetDrift.addEventListener('click', () => resetSamples('照合の基準をリセットしました'));
+els.tz.addEventListener('change', () => resetSamples('時刻の基準を変えたので照合をやり直します'));
+render();
+
+// ── 送信 ──────────────────────────────────────────────────
+function buildCommand(now) {
+  const utc = Math.round(now / 1000);
+  const epoch = els.tz.value === 'utc'
+    ? utc
+    : utc - new Date().getTimezoneOffset() * 60;
+  const raw = els.prefix.value;
+  const head = raw.startsWith('T') ? 'T' : '';
+  const tail = raw.includes('\r') ? '\r\n' : '\n';
+  return { text: `${head}${epoch}${tail}`, epoch };
+}
+
+async function transmit() {
+  const now = Date.now();
+  const { text, epoch } = buildCommand(now);
+  const writer = port.writable.getWriter();
+  try {
+    await writer.write(new TextEncoder().encode(text));
+    const off = Date.now() % 1000;
+    log('tx', `→ ${text.trim()}  (境界から ${off > 500 ? off - 1000 : off} ms)`);
+    resetSamples('RTC を合わせたので照合の基準を取り直します');
+  } catch (e) {
+    log('err', `送信できません: ${e.message}`);
+  } finally {
+    writer.releaseLock();
+  }
+  return epoch;
+}
+
+els.send.addEventListener('click', async () => {
+  if (!port?.writable) return;
+
+  if (!els.atBoundary.checked) {
+    await transmit();
+    return;
+  }
+
+  if (armed) {                       // 予約中にもう一度押したら取り消し
+    clearTimeout(armTimer);
+    disarm();
+    log('sys', '送信を取り消しました');
+    return;
+  }
+
+  armed = true;
+  els.boundary.dataset.armed = 'true';
+  els.boundaryLabel.textContent = '秒境界で送信します';
+  els.send.textContent = '送信を取り消す';
+  setStatus('busy', '待機中');
+
+  const lead = Number(els.lead.value) || 0;
+  const delay = Math.max(0, 1000 - (Date.now() % 1000) - lead);
+  els.boundaryMs.textContent = `T-${delay} ms`;
+  armTimer = setTimeout(async () => {
+    await transmit();
+    disarm();
+  }, delay);
+});
+
+function disarm() {
+  armed = false;
+  els.boundary.dataset.armed = 'false';
+  els.boundaryLabel.textContent = '次の秒境界まで';
+  els.send.textContent = '時刻を送信';
+  if (port) setStatus('connected', '接続済み');
+}
+
+// ── 切断 ──────────────────────────────────────────────────
+async function teardown(reason) {
+  clearTimeout(armTimer);
+  disarm();
+  if (reader) { try { await reader.cancel(); } catch {} }
+  if (readLoop) { try { await readLoop; } catch {} readLoop = null; }
+  if (port) { try { await port.close(); } catch {} port = null; }
+  setStatus('idle', '未接続');
+  els.connect.disabled = !('serial' in navigator);
+  els.send.disabled = true;
+  els.disconnect.disabled = true;
+  els.baud.disabled = false;
+  if (reason) log('sys', reason);
+}
+
+els.disconnect.addEventListener('click', () => teardown('切断しました'));
+
+// 書き込み後のリセットなどでポートが消えたとき
+navigator.serial?.addEventListener('disconnect', (e) => {
+  if (port && e.target === port) teardown('基板が外れました。再接続してください。');
+});
+navigator.serial?.addEventListener('connect', () => {
+  if (!port) log('sys', '基板を検出しました。「基板を接続」を押してください。');
+});
+
+window.addEventListener('beforeunload', () => { if (port) port.close(); });
+</script>
+</body>
+</html>

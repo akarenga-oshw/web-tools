@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>web tools — akarenga-oshw</title>
+<style>
+  :root{
+    --ink:#0f1113;
+    --panel:#16191c;
+    --panel-2:#1d2125;
+    --line:#2c3237;
+    --text:#dfe3e6;
+    --dim:#8b959c;
+    --brick:#a8402c;      /* 赤煉瓦 */
+    --brick-lit:#d05a41;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", "Noto Sans Mono CJK JP", Menlo, monospace;
+    --ui: "Helvetica Neue", Arial, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--ink); color:var(--text);
+    font-family:var(--ui); font-size:14px; line-height:1.6;
+  }
+  .wrap{max-width:820px; margin:0 auto; padding:32px 20px 64px}
+
+  header{border-bottom:1px solid var(--line); padding-bottom:20px; margin-bottom:28px}
+  h1{
+    font-family:var(--mono); font-size:26px; font-weight:600;
+    letter-spacing:-0.02em; margin:0 0 6px;
+  }
+  h1 .chip{
+    display:inline-block; background:var(--brick); color:#fff;
+    padding:1px 8px; border-radius:3px; font-size:15px; vertical-align:3px; margin-right:10px;
+  }
+  header p{margin:0; color:var(--dim); font-size:13px}
+
+  h2{
+    font-size:12px; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--dim); margin:32px 0 12px;
+  }
+
+  a.tool{
+    display:block; text-decoration:none; color:inherit;
+    background:var(--panel); border:1px solid var(--line); border-radius:6px;
+    padding:16px 18px; margin-bottom:10px;
+  }
+  a.tool:hover{background:var(--panel-2); border-color:var(--brick)}
+  a.tool .name{font-family:var(--mono); font-size:15px; color:var(--brick-lit)}
+  a.tool .desc{margin:4px 0 0; color:var(--dim); font-size:13px}
+
+  .note{
+    border-left:2px solid var(--line); padding:2px 0 2px 14px;
+    color:var(--dim); font-size:13px; margin:24px 0 0;
+  }
+  code{font-family:var(--mono); font-size:.92em; color:var(--text)}
+  footer{margin-top:40px; padding-top:16px; border-top:1px solid var(--line); color:var(--dim); font-size:12px}
+  footer a{color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1><span class="chip">akarenga</span>web tools</h1>
+    <p>ブラウザから基板を扱うツール。インストール不要、Chrome か Edge で開きます。</p>
+  </header>
+
+  <h2>Renesas RA 全般</h2>
+
+  <a class="tool" href="./renesas-ra-flasher/">
+    <div class="name">renesas-ra-flasher</div>
+    <p class="desc">
+      標準ブートファームウェア経由でフラッシュに書き込みます。検証済みは RA4M1 のみ。
+    </p>
+  </a>
+
+  <h2>シリアルを持つ基板全般</h2>
+
+  <a class="tool" href="./usb-time-sync/">
+    <div class="name">usb-time-sync</div>
+    <p class="desc">
+      PC の時刻を基板の RTC に設定し、以後のずれを ppm で表示します。
+    </p>
+  </a>
+
+  <p class="note">
+    どちらも <a href="https://developer.mozilla.org/ja/docs/Web/API/Web_Serial_API">Web Serial</a>
+    を使います。Firefox と Safari、および Android は未対応です。
+    通信はブラウザと基板の間だけで完結し、サーバには何も送られません。
+  </p>
+
+  <footer>
+    <a href="https://github.com/akarenga-oshw/web-tools">akarenga-oshw/web-tools</a>
+  </footer>
+
+</div>
+</body>
+</html>

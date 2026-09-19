@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RA4M1 ブートローダ書き込み</title>
+<style>
+  :root{
+    --ink:#0f1113;
+    --panel:#16191c;
+    --panel-2:#1d2125;
+    --line:#2c3237;
+    --text:#dfe3e6;
+    --dim:#8b959c;
+    --brick:#a8402c;      /* 赤煉瓦 */
+    --brick-lit:#d05a41;
+    --tx:#c9a227;
+    --rx:#5aa9a0;
+    --ok:#6fbf73;
+    --bad:#d9534f;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", "Noto Sans Mono CJK JP", Menlo, monospace;
+    --ui: "Helvetica Neue", Arial, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--ink); color:var(--text);
+    font-family:var(--ui); font-size:14px; line-height:1.6;
+  }
+  .wrap{max-width:980px; margin:0 auto; padding:32px 20px 64px}
+
+  header{border-bottom:1px solid var(--line); padding-bottom:20px; margin-bottom:28px}
+  h1{
+    font-family:var(--mono); font-size:26px; font-weight:600;
+    letter-spacing:-0.02em; margin:0 0 6px;
+  }
+  h1 .chip{
+    display:inline-block; background:var(--brick); color:#fff;
+    padding:1px 8px; border-radius:3px; font-size:15px; vertical-align:3px; margin-right:10px;
+  }
+  header p{margin:0; color:var(--dim); font-size:13px}
+
+  section{margin-bottom:22px}
+  .label{
+    font-family:var(--mono); font-size:11px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--dim); margin-bottom:8px;
+  }
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:16px}
+
+  .row{display:flex; gap:12px; flex-wrap:wrap; align-items:center}
+  .row + .row{margin-top:12px}
+
+  button{
+    font-family:var(--ui); font-size:14px; font-weight:600;
+    background:var(--panel-2); color:var(--text);
+    border:1px solid var(--line); border-radius:5px;
+    padding:9px 18px; cursor:pointer;
+  }
+  button:hover:not(:disabled){border-color:var(--brick-lit)}
+  button:disabled{opacity:.4; cursor:not-allowed}
+  button.primary{background:var(--brick); border-color:var(--brick); color:#fff}
+  button.primary:hover:not(:disabled){background:var(--brick-lit)}
+  button:focus-visible, input:focus-visible, select:focus-visible{outline:2px solid var(--brick-lit); outline-offset:2px}
+
+  select, input[type=text]{
+    font-family:var(--mono); font-size:13px;
+    background:var(--panel-2); color:var(--text);
+    border:1px solid var(--line); border-radius:5px; padding:8px 10px;
+  }
+  input[type=text]{min-width:260px; flex:1}
+  label.opt{display:flex; align-items:center; gap:6px; color:var(--dim); font-size:13px}
+
+  .drop{
+    border:1px dashed var(--line); border-radius:6px; padding:22px;
+    text-align:center; color:var(--dim); cursor:pointer; font-family:var(--mono); font-size:13px;
+  }
+  .drop.has{border-style:solid; border-color:var(--brick); color:var(--text)}
+  .drop.over{border-color:var(--brick-lit); background:var(--panel-2)}
+
+  /* 署名要素: 実パケットのログ */
+  #log{
+    background:#0b0d0e; border:1px solid var(--line); border-radius:6px;
+    font-family:var(--mono); font-size:12px; line-height:1.5;
+    height:340px; overflow-y:auto; padding:12px; white-space:pre-wrap; word-break:break-all;
+  }
+  #log .t{color:#5a6469; margin-right:8px}
+  #log .tx{color:var(--tx)}
+  #log .rx{color:var(--rx)}
+  #log .info{color:var(--text)}
+  #log .ok{color:var(--ok)}
+  #log .err{color:var(--bad)}
+  #log .dim{color:var(--dim)}
+
+  .bar{height:4px; background:var(--panel-2); border-radius:2px; overflow:hidden; margin-top:14px}
+  .bar > i{display:block; height:100%; width:0; background:var(--brick-lit); transition:width .15s linear}
+
+  .stat{display:flex; gap:22px; flex-wrap:wrap; font-family:var(--mono); font-size:12px; color:var(--dim); margin-top:10px}
+  .stat b{color:var(--text); font-weight:600}
+
+  details{margin-top:10px}
+  summary{cursor:pointer; color:var(--dim); font-size:13px}
+  details p, details li{color:var(--dim); font-size:13px}
+  code{font-family:var(--mono); color:var(--text); background:var(--panel-2); padding:1px 5px; border-radius:3px}
+
+  .warn{border-left:2px solid var(--brick); padding-left:12px; color:var(--dim); font-size:13px}
+  @media (prefers-reduced-motion: reduce){*{transition:none !important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1><span class="chip">RA4M1</span>ブートローダ書き込み</h1>
+  <p>Renesas 標準ブートファームウェア (r01an5372) をブラウザから直接叩きます。Chrome / Edge の Web Serial が必要です。</p>
+</header>
+
+<section>
+  <div class="label">1 — 接続</div>
+  <div class="panel">
+    <div class="row">
+      <select id="mode">
+        <option value="usb">USB ブートモード (RA USB Boot / CDC)</option>
+        <option value="uart">SCI ブートモード (USB-シリアル変換, 2線 UART)</option>
+      </select>
+      <button id="btnConnect" class="primary">シリアルポートを選ぶ</button>
+      <button id="btnDisconnect" disabled>切断</button>
+    </div>
+    <div class="row">
+      <label class="opt"><input type="checkbox" id="filterVid" checked> 045B:0261 のみ表示</label>
+      <label class="opt">通信速度 <select id="baud">
+        <option value="0">上げない (9600 のまま)</option>
+        <option value="115200">115200</option>
+        <option value="500000" selected>500000</option>
+        <option value="1000000">1000000</option>
+      </select></label>
+      <span class="dim" style="font-size:12px">速度変更は UART モードのみ有効</span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="label">2 — ブートローダ HEX</div>
+  <div class="panel">
+    <div class="drop" id="drop">クリックして .hex を選択（またはドラッグ＆ドロップ）</div>
+    <input type="file" id="file" accept=".hex,.ihx" hidden>
+    <div class="row" style="margin-top:12px">
+      <input type="text" id="url" placeholder="または HEX の URL: ./bootloaders/dfu_minima.hex">
+      <button id="btnFetch">読み込む</button>
+    </div>
+    <div class="stat" id="hexStat"></div>
+  </div>
+</section>
+
+<section>
+  <div class="label">3 — 書き込み</div>
+  <div class="panel">
+    <div class="row">
+      <button id="btnProbe" disabled>デバイス情報を読む</button>
+      <button id="btnFlash" class="primary" disabled>消去して書き込む</button>
+      <label class="opt"><input type="checkbox" id="doVerify" checked> 書き込み後にベリファイ</label>
+    </div>
+    <div class="bar"><i id="bar"></i></div>
+    <div class="stat" id="devStat"></div>
+  </div>
+</section>
+
+<section>
+  <div class="label">パケットログ</div>
+  <div id="log"></div>
+  <div class="row" style="margin-top:10px">
+    <button id="btnClear">ログを消す</button>
+    <label class="opt"><input type="checkbox" id="verbose" checked> 生バイトを表示</label>
+  </div>
+</section>
+
+<details>
+  <summary>ブートモードへの入り方と既知の注意点</summary>
+  <p><b>USB ブートモード:</b> MD ピンを Low に落としたままリセット解除 → USB を接続。<code>045B:0261 "RA USB Boot"</code> として列挙されます。ボーレート・パリティは CDC 上では無視されるので、同期シーケンスなしで Inquiry から始められます。</p>
+  <p><b>SCI ブートモード:</b> MD=Low でリセット解除後、<code>9600 8N1</code> で <code>0x00</code> を 2 回 → ACK <code>0x00</code>、<code>0x55</code> → ブートコード <code>0xC3</code>。応答がない場合はパリティ ODD で同期し、<code>0xC3</code> 受信後に NONE へ切り替えます（RA2 系で確認されている挙動。RA4M1 では通常 NONE のままで通ります）。</p>
+  <p><b>Windows:</b> RA USB Boot が usbser.sys に紐づいていないと Web Serial からポートが見えません。デバイスマネージャで COM ポートとして出ているか先に確認してください。</p>
+  <p><b>ID 認証:</b> ID コードが書かれた個体では Inquiry が Flow error (<code>0xC3</code>) を返します。このツールは <code>FF</code>×16 で自動認証を試みます。</p>
+</details>
+
+<script>
+"use strict";
+
+/* ───────────────── ログ ───────────────── */
+const logEl = document.getElementById('log');
+const verboseEl = document.getElementById('verbose');
+function ts(){ const d=new Date(); return d.toTimeString().slice(0,8)+'.'+String(d.getMilliseconds()).padStart(3,'0'); }
+function log(cls, text){
+  const line = document.createElement('div');
+  const t = document.createElement('span'); t.className='t'; t.textContent = ts();
+  const b = document.createElement('span'); b.className=cls; b.textContent = text;
+  line.append(t,b); logEl.append(line); logEl.scrollTop = logEl.scrollHeight;
+}
+const hex = a => Array.from(a, b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+function hexTrunc(a, max=16){
+  if(a.length<=max) return hex(a);
+  return hex(a.slice(0,max)) + ` … (${a.length} bytes)`;
+}
+function logTx(a){ if(verboseEl.checked) log('tx','TX  '+hexTrunc(a)); }
+function logRx(a){ if(verboseEl.checked) log('rx','RX  '+hexTrunc(a)); }
+document.getElementById('btnClear').onclick = ()=> logEl.textContent='';
+
+/* ───────────────── Intel HEX ───────────────── */
+function parseIntelHex(text){
+  const chunks = [];           // {addr, bytes:[]}
+  let upper = 0, cur = null;
+  const lines = text.split(/\r?\n/);
+  for(let i=0;i<lines.length;i++){
+    const l = lines[i].trim();
+    if(!l) continue;
+    if(l[0] !== ':') throw new Error(`${i+1} 行目が ':' で始まっていません`);
+    const raw = l.slice(1);
+    if(raw.length % 2) throw new Error(`${i+1} 行目の長さが不正です`);
+    const b = new Uint8Array(raw.length/2);
+    for(let k=0;k<b.length;k++) b[k] = parseInt(raw.substr(k*2,2),16);
+    let sum = 0; for(const v of b) sum = (sum+v)&0xff;
+    if(sum !== 0) throw new Error(`${i+1} 行目のチェックサムが合いません`);
+    const len = b[0], off = (b[1]<<8)|b[2], type = b[3], data = b.slice(4,4+len);
+    if(type === 0x00){
+      const addr = upper + off;
+      if(cur && cur.addr + cur.bytes.length === addr){ cur.bytes.push(...data); }
+      else { cur = {addr, bytes:[...data]}; chunks.push(cur); }
+    } else if(type === 0x04){ upper = ((data[0]<<8)|data[1]) * 0x10000; cur = null; }
+    else if(type === 0x02){ upper = ((data[0]<<8)|data[1]) * 16; cur = null; }
+    else if(type === 0x01){ break; }
+  }
+  if(!chunks.length) throw new Error('データレコードがありません');
+  return chunks.map(c => ({addr:c.addr, data:new Uint8Array(c.bytes)}));
+}
+
+/* ───────────────── パケット ───────────────── */
+const SOH = 0x01, SOD = 0x81, ETX = 0x03;
+const CMD = { INQUIRY:0x00, ERASE:0x12, WRITE:0x13, READ:0x15, ID_AUTH:0x30, BAUD:0x34, SIG:0x3A, AREA:0x3B };
+const STS = {
+  0x00:'OK', 0xC0:'未対応コマンド', 0xC1:'パケットエラー', 0xC2:'チェックサムエラー', 0xC3:'フローエラー',
+  0xD0:'アドレスエラー', 0xD4:'ボーレート誤差エラー', 0xDA:'プロテクトエラー', 0xDB:'ID 不一致',
+  0xDC:'シリアルプログラミング禁止', 0xE1:'消去エラー', 0xE2:'書き込みエラー', 0xE7:'シーケンサエラー'
+};
+function frame(start, code, payload){
+  const len = 1 + payload.length;
+  const out = new Uint8Array(1 + 2 + len + 2);
+  out[0]=start; out[1]=(len>>8)&0xff; out[2]=len&0xff; out[3]=code;
+  out.set(payload, 4);
+  let sum = 0; for(let i=1;i<4+payload.length;i++) sum = (sum + out[i]) & 0xff;
+  out[4+payload.length] = (0x100 - sum) & 0xff;
+  out[5+payload.length] = ETX;
+  return out;
+}
+const cmdPacket  = (code, payload=new Uint8Array(0)) => frame(SOH, code, payload);
+const dataPacket = (code, payload)                   => frame(SOD, code, payload);
+const be32 = n => new Uint8Array([(n>>>24)&0xff,(n>>>16)&0xff,(n>>>8)&0xff,n&0xff]);
+const rd32 = (a,i) => ((a[i]<<24)|(a[i+1]<<16)|(a[i+2]<<8)|a[i+3])>>>0;
+
+/* ───────────────── シリアル ───────────────── */
+class Transport {
+  constructor(port){ this.port=port; this.buf=new Uint8Array(0); this.reader=null; this.writer=null; this.loop=null; }
+  async open(opts){
+    await this.port.open(Object.assign({dataBits:8, stopBits:1, parity:'none', flowControl:'none', bufferSize:65536}, opts));
+    this.writer = this.port.writable.getWriter();
+    this.loop = this._read();
+  }
+  async _read(){
+    this.reader = this.port.readable.getReader();
+    try{
+      while(true){
+        const {value, done} = await this.reader.read();
+        if(done) break;
+        if(value && value.length){
+          const n = new Uint8Array(this.buf.length + value.length);
+          n.set(this.buf); n.set(value, this.buf.length); this.buf = n;
+        }
+      }
+    }catch(e){ /* cancel 時 */ }
+    finally{ try{ this.reader.releaseLock(); }catch(e){} }
+  }
+  async close(){
+    try{ if(this.reader) await this.reader.cancel(); }catch(e){}
+    try{ await this.loop; }catch(e){}
+    try{ if(this.writer) this.writer.releaseLock(); }catch(e){}
+    try{ await this.port.close(); }catch(e){}
+    this.reader=this.writer=this.loop=null;
+  }
+  /** パリティ／ボーレートを変えるため一度閉じて開き直す */
+  async reopen(opts){ await this.close(); this.buf=new Uint8Array(0); await this.open(opts); }
+  flush(){ this.buf = new Uint8Array(0); }
+  async write(bytes){ logTx(bytes); await this.writer.write(bytes); }
+  async want(n, timeout=2000){
+    const end = performance.now() + timeout;
+    while(this.buf.length < n){
+      if(performance.now() > end) throw new Error(`受信タイムアウト（${n} バイト待ち, ${this.buf.length} 受信）`);
+      await new Promise(r=>setTimeout(r,4));
+    }
+    const out = this.buf.slice(0,n); this.buf = this.buf.slice(n); return out;
+  }
+  async recvPacket(timeout=3000){
+    const head = await this.want(3, timeout);
+    if(head[0] !== SOD) throw new Error(`SOD が来ません: 0x${head[0].toString(16)}`);
+    const len = (head[1]<<8)|head[2];
+    const rest = await this.want(len+2, timeout);
+    const full = new Uint8Array(3+len+2); full.set(head); full.set(rest,3);
+    logRx(full);
+    if(full[full.length-1] !== ETX) throw new Error('ETX がありません');
+    let sum=0; for(let i=1;i<3+len;i++) sum=(sum+full[i])&0xff;
+    if(((sum + full[3+len]) & 0xff) !== 0) throw new Error('受信チェックサム不一致');
+    const res = full[3], body = full.slice(4, 3+len);
+    if(res & 0x80){
+      const code = body[0];
+      throw new Error(`デバイスエラー: ${STS[code] || '不明'} (0x${code.toString(16).toUpperCase()})`);
+    }
+    return {res, body};
+  }
+}
+
+/* ───────────────── ブートファーム操作 ───────────────── */
+class Boot {
+  constructor(tr){ this.tr = tr; this.areas = []; }
+
+  async command(code, payload, timeout=3000){
+    this.tr.flush();
+    await this.tr.write(cmdPacket(code, payload));
+    return this.tr.recvPacket(timeout);
+  }
+
+  /** UART 用。CDC では不要 */
+  async sync(portOpts){
+    for(const parity of ['none','odd']){
+      log('info', `同期中… (parity=${parity})`);
+      await this.tr.reopen(Object.assign({}, portOpts, {baudRate:9600, parity}));
+      this.tr.flush();
+      let acked = false;
+      for(let i=0;i<30;i++){
+        await this.tr.write(new Uint8Array([0x00]));
+        try{ const a = await this.tr.want(1, 120); if(a[0]===0x00){ acked = true; break; } }
+        catch(e){ /* 次の 0x00 へ */ }
+      }
+      if(!acked) continue;
+      await this.tr.write(new Uint8Array([0x55]));
+      const b = await this.tr.want(1, 500).catch(()=>null);
+      if(b && b[0] === 0xC3){
+        log('ok', `同期しました（ブートコード 0xC3, sync parity=${parity}）`);
+        if(parity !== 'none'){
+          await this.tr.reopen(Object.assign({}, portOpts, {baudRate:9600, parity:'none'}));
+          log('info','コマンド用にパリティを NONE へ切り替えました');
+        }
+        return;
+      }
+    }
+    throw new Error('同期できません。MD ピンと結線、リセットのタイミングを確認してください');
+  }
+
+  async enterCommandPhase(){
+    try{
+      await this.command(CMD.INQUIRY, new Uint8Array(0), 1500);
+      log('ok','コマンド受付フェーズです（ID 認証不要）');
+    }catch(e){
+      if(!/フローエラー/.test(e.message)) throw e;
+      log('info','認証フェーズです。ID = FF×16 で認証します');
+      await this.command(CMD.ID_AUTH, new Uint8Array(16).fill(0xFF), 3000);
+      log('ok','ID 認証に成功しました');
+    }
+  }
+
+  async signature(){
+    const {body} = await this.command(CMD.SIG);
+    const sig = {
+      sciHz: rd32(body,0), maxBaud: rd32(body,4),
+      areas: body[8], type: body[9], fw: `${body[10]}.${body[11]}`
+    };
+    log('info', `SCI ${(sig.sciHz/1e6).toFixed(0)} MHz / 最大 ${sig.maxBaud} bps / 領域 ${sig.areas} / TYP 0x${sig.type.toString(16).toUpperCase()} / ブートファーム V${sig.fw}`);
+    return sig;
+  }
+
+  async areaInfo(n){
+    const {body} = await this.command(CMD.AREA, new Uint8Array([n]));
+    const kind = ['コードフラッシュ','データフラッシュ','コンフィグ'][body[0]] || `不明(${body[0]})`;
+    const a = { koa:body[0], kind, sad:rd32(body,1), ead:rd32(body,5), eau:rd32(body,9), wau:rd32(body,13) };
+    log('info', `領域${n} ${a.kind}  0x${a.sad.toString(16).padStart(8,'0')}–0x${a.ead.toString(16).padStart(8,'0')}  消去単位 ${a.eau||'—'}B / 書込単位 ${a.wau}B`);
+    return a;
+  }
+
+  async setBaud(bps, portOpts){
+    await this.command(CMD.BAUD, be32(bps));
+    await new Promise(r=>setTimeout(r,50));
+    await this.tr.reopen(Object.assign({}, portOpts, {baudRate:bps, parity:'none'}));
+    await new Promise(r=>setTimeout(r,10));
+    log('ok', `${bps} bps へ切り替えました`);
+  }
+
+  async erase(start, end){
+    const p = new Uint8Array(8); p.set(be32(start)); p.set(be32(end),4);
+    log('info', `消去 0x${start.toString(16).padStart(8,'0')}–0x${end.toString(16).padStart(8,'0')}`);
+    await this.command(CMD.ERASE, p, 60000);
+    log('ok','消去しました');
+  }
+
+  async write(start, image, onProgress){
+    const end = start + image.length - 1;
+    const p = new Uint8Array(8); p.set(be32(start)); p.set(be32(end),4);
+    this.tr.flush();
+    await this.tr.write(cmdPacket(CMD.WRITE, p));
+    await this.tr.recvPacket(5000);
+    const CH = 1024;
+    for(let off=0; off<image.length; off+=CH){
+      const chunk = image.slice(off, Math.min(off+CH, image.length));
+      await this.tr.write(dataPacket(CMD.WRITE, chunk));
+      await this.tr.recvPacket(10000);
+      onProgress && onProgress((off+chunk.length)/image.length);
+    }
+  }
+
+  async read(start, len, timeout=10000){
+    const end = start + len - 1;
+    const p = new Uint8Array(8); p.set(be32(start)); p.set(be32(end),4);
+    this.tr.flush();
+    await this.tr.write(cmdPacket(CMD.READ, p));
+    const out = new Uint8Array(len);
+    let got = 0;
+    while(got < len){
+      const {body} = await this.tr.recvPacket(timeout);
+      if(body.length === 1) break;               // 終端の OK
+      out.set(body.slice(0, Math.min(body.length, len-got)), got);
+      got += body.length;
+    }
+    // 末尾に OK が来る個体があるので、来れば吸う
+    try{ await this.tr.recvPacket(150); }catch(e){}
+    return out.slice(0, got);
+  }
+}
+
+/* ───────────────── UI 状態 ───────────────── */
+let port=null, tr=null, boot=null, segments=null, portOpts=null;
+const $ = id => document.getElementById(id);
+const bar = $('bar');
+const setBar = f => bar.style.width = (Math.max(0,Math.min(1,f))*100).toFixed(1)+'%';
+
+function setHexStat(){
+  if(!segments){ $('hexStat').innerHTML=''; return; }
+  const total = segments.reduce((s,x)=>s+x.data.length,0);
+  const min = Math.min(...segments.map(s=>s.addr));
+  const max = Math.max(...segments.map(s=>s.addr+s.data.length-1));
+  $('hexStat').innerHTML =
+    `<span>セグメント <b>${segments.length}</b></span>` +
+    `<span>合計 <b>${total.toLocaleString()}</b> バイト</span>` +
+    `<span>範囲 <b>0x${min.toString(16).padStart(8,'0')}</b> – <b>0x${max.toString(16).padStart(8,'0')}</b></span>`;
+}
+function loadHexText(text, name){
+  try{
+    segments = parseIntelHex(text);
+    $('drop').classList.add('has');
+    $('drop').textContent = name;
+    log('ok', `${name} を読み込みました`);
+    setHexStat(); updateButtons();
+  }catch(e){ segments=null; setHexStat(); updateButtons(); log('err','HEX の解析に失敗: '+e.message); }
+}
+function updateButtons(){
+  $('btnProbe').disabled = !boot;
+  $('btnFlash').disabled = !(boot && segments);
+  $('btnDisconnect').disabled = !port;
+  $('btnConnect').disabled = !!port;
+}
+
+/* ファイル入力 */
+const drop = $('drop');
+drop.onclick = ()=> $('file').click();
+$('file').onchange = e => { const f=e.target.files[0]; if(f) f.text().then(t=>loadHexText(t,f.name)); };
+drop.addEventListener('dragover', e=>{ e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', ()=> drop.classList.remove('over'));
+drop.addEventListener('drop', e=>{
+  e.preventDefault(); drop.classList.remove('over');
+  const f = e.dataTransfer.files[0]; if(f) f.text().then(t=>loadHexText(t,f.name));
+});
+$('btnFetch').onclick = async ()=>{
+  const u = $('url').value.trim(); if(!u) return;
+  try{
+    const r = await fetch(u); if(!r.ok) throw new Error('HTTP '+r.status);
+    loadHexText(await r.text(), u.split('/').pop());
+  }catch(e){ log('err','取得に失敗: '+e.message); }
+};
+
+/* 接続 */
+$('btnConnect').onclick = async ()=>{
+  if(!('serial' in navigator)){
+    log('err','このブラウザは Web Serial に対応していません。Chrome または Edge のデスクトップ版を使ってください');
+    return;
+  }
+  try{
+    const filters = $('filterVid').checked ? [{usbVendorId:0x045B, usbProductId:0x0261}] : [];
+    port = await navigator.serial.requestPort({filters});
+    const usb = port.getInfo();
+    portOpts = {dataBits:8, stopBits:1, flowControl:'none'};
+    tr = new Transport(port);
+    const mode = $('mode').value;
+    await tr.open(Object.assign({baudRate:9600, parity:'none'}, portOpts));
+    boot = new Boot(tr);
+    log('ok', `接続しました${usb.usbVendorId!=null ? ` (${usb.usbVendorId.toString(16).padStart(4,'0').toUpperCase()}:${usb.usbProductId.toString(16).padStart(4,'0').toUpperCase()})` : ''}`);
+    if(mode === 'uart') await boot.sync(portOpts);
+    else log('info','USB ブートモード: 同期シーケンスを飛ばして Inquiry から始めます');
+    await boot.enterCommandPhase();
+    await probe();
+  }catch(e){
+    log('err', e.message);
+    if(tr){ await tr.close().catch(()=>{}); }
+    port=null; tr=null; boot=null;
+  }
+  updateButtons();
+};
+$('btnDisconnect').onclick = async ()=>{
+  if(tr) await tr.close();
+  port=null; tr=null; boot=null; $('devStat').innerHTML=''; setBar(0);
+  log('info','切断しました'); updateButtons();
+};
+
+async function probe(){
+  const sig = await boot.signature();
+  boot.areas = [];
+  for(let i=0;i<sig.areas;i++) boot.areas.push(await boot.areaInfo(i));
+  const code = boot.areas.find(a=>a.koa===0);
+  $('devStat').innerHTML = code
+    ? `<span>コードフラッシュ <b>${((code.ead-code.sad+1)/1024).toFixed(0)} KB</b></span>` +
+      `<span>消去単位 <b>${code.eau} B</b></span><span>書込単位 <b>${code.wau} B</b></span>` +
+      `<span>ブートファーム <b>V${sig.fw}</b></span>`
+    : '';
+}
+$('btnProbe').onclick = ()=> probe().catch(e=>log('err', e.message));
+
+/* 書き込み */
+$('btnFlash').onclick = async ()=>{
+  $('btnFlash').disabled = true; $('btnProbe').disabled = true;
+  try{
+    if(!boot.areas.length) await probe();
+    const code = boot.areas.find(a=>a.koa===0);
+    if(!code) throw new Error('コードフラッシュ領域が見つかりません');
+
+    const inRange = segments.filter(s => s.addr >= code.sad && s.addr <= code.ead);
+    if(!inRange.length) throw new Error('HEX にコードフラッシュ範囲のデータがありません');
+    if(inRange.length !== segments.length) log('info','コードフラッシュ外のセグメントは無視します');
+
+    const min = Math.min(...inRange.map(s=>s.addr));
+    const max = Math.max(...inRange.map(s=>s.addr+s.data.length-1));
+    const eau = code.eau, wau = code.wau;
+    const start = Math.floor(min/eau)*eau;
+    const end   = Math.ceil((max+1)/eau)*eau - 1;
+    if(end > code.ead) throw new Error('HEX がコードフラッシュ範囲を超えています');
+
+    // 0xFF 埋めの連続イメージを作る
+    const image = new Uint8Array(end - start + 1).fill(0xFF);
+    for(const s of inRange) image.set(s.data, s.addr - start);
+    const writeLen = Math.ceil(image.length/wau)*wau;
+    const padded = writeLen === image.length ? image
+                 : (()=>{ const p=new Uint8Array(writeLen).fill(0xFF); p.set(image); return p; })();
+
+    // UART なら速度を上げる
+    const wanted = parseInt($('baud').value,10);
+    if($('mode').value === 'uart' && wanted) await boot.setBaud(wanted, portOpts);
+
+    const t0 = performance.now();
+    setBar(0);
+    await boot.erase(start, end);
+
+    log('info', `書き込み ${padded.length.toLocaleString()} バイト @ 0x${start.toString(16).padStart(8,'0')}`);
+    await boot.write(start, padded, f => setBar(f*0.8));
+    log('ok','書き込みました');
+
+    if($('doVerify').checked){
+      log('info','ベリファイ中…');
+      let bad = 0;
+      for(let off=0; off<padded.length; off+=1024){
+        const n = Math.min(1024, padded.length-off);
+        const got = await boot.read(start+off, n);
+        for(let i=0;i<Math.min(n,got.length);i++) if(got[i] !== padded[off+i]) bad++;
+        if(got.length < n) bad += n-got.length;
+        setBar(0.8 + 0.2*(off+n)/padded.length);
+      }
+      if(bad) log('err', `ベリファイ不一致 ${bad} バイト`);
+      else log('ok','ベリファイ一致');
+    }
+    setBar(1);
+    log('ok', `完了（${((performance.now()-t0)/1000).toFixed(1)} 秒）。MD ピンを解放して電源を入れ直してください`);
+  }catch(e){
+    log('err', e.message);
+  }finally{
+    updateButtons();
+  }
+};
+
+if(!('serial' in navigator)) log('err','Web Serial が使えません。Chrome / Edge のデスクトップ版（HTTPS または localhost）で開いてください');
+else log('dim','準備完了。ターゲットをブートモードで起動してから接続してください');
+updateButtons();
+</script>
+</div>
+</body>
+</html>
