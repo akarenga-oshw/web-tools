@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>web tools — tests</title>
+<style>
+  body{margin:0; background:#0f1113; color:#dfe3e6;
+       font-family:ui-monospace,"SF Mono","Roboto Mono",Menlo,monospace; font-size:13px; line-height:1.7}
+  .wrap{max-width:900px; margin:0 auto; padding:32px 20px 64px}
+  h1{font-size:20px; margin:0 0 4px}
+  p.sub{color:#8b959c; margin:0 0 24px; font-size:12px}
+  #summary{font-size:16px; padding:10px 14px; border-radius:5px; margin-bottom:18px; display:inline-block}
+  #summary.pass{background:#1d3320; color:#8fd694}
+  #summary.fail{background:#3a1f1f; color:#e98b88}
+  h2{font-size:12px; letter-spacing:.1em; text-transform:uppercase; color:#8b959c;
+     margin:26px 0 8px; border-bottom:1px solid #2c3237; padding-bottom:6px}
+  .case{padding:1px 0}
+  .ok::before {content:"PASS"; color:#6fbf73; margin-right:12px}
+  .bad::before{content:"FAIL"; color:#d9534f; margin-right:12px}
+  .bad{color:#e98b88}
+  .note{color:#5a6469; margin-left:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>web tools — tests</h1>
+  <p class="sub">Everything here runs without a board. Open this page, or load it in headless Chrome.</p>
+  <div id="summary">running…</div>
+  <div id="out"></div>
+</div>
+
+<script type="module">
+import { parseIntelHex } from '../renesas-ra-flasher/hex.js';
+import { frame, cmdPacket, dataPacket, be32, rd32, CMD, SOH, SOD, ETX }
+  from '../renesas-ra-flasher/boot.js';
+import { RA_USB_BOOT, AKARENGA_UNO_R4_MINIMA, AKARENGA_UNO_R4_MINIMA_DFU, describe }
+  from '../shared/devices.js';
+
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+
+function check(name, cond, note) {
+  const d = document.createElement('div');
+  d.className = 'case ' + (cond ? 'ok' : 'bad');
+  d.textContent = name;
+  if (note) { const s = document.createElement('span'); s.className = 'note'; s.textContent = note; d.append(s); }
+  out.append(d);
+  cond ? pass++ : fail++;
+}
+
+function rejects(name, fn, re) {
+  try { fn(); check(name, false, 'no exception was thrown'); }
+  catch (e) { check(name, !re || re.test(e.message), e.message); }
+}
+
+/* Run a group in isolation. Without this, one throw outside a check() ends the
+   whole page and the remaining groups silently never run, which reads as a
+   pass unless you count the cases. */
+function group(name, body) {
+  const h = document.createElement('h2'); h.textContent = name; out.append(h);
+  try { body(); }
+  catch (e) { check(`${name} did not finish`, false, e && e.message ? e.message : String(e)); }
+}
+
+/* Emit valid Intel HEX for a block of bytes, so the parser can be checked
+   against data this file generated rather than against a committed fixture. */
+function makeHex(addr, bytes, perLine = 16) {
+  const rec = (len, off, type, data) => {
+    const b = [len, (off >> 8) & 0xff, off & 0xff, type, ...data];
+    const sum = (0x100 - (b.reduce((a, v) => a + v, 0) & 0xff)) & 0xff;
+    return ':' + [...b, sum].map(v => v.toString(16).padStart(2, '0').toUpperCase()).join('');
+  };
+  const lines = [];
+  let upper = -1;
+  for (let i = 0; i < bytes.length; i += perLine) {
+    const a = addr + i;
+    const hi = (a >>> 16) & 0xffff;
+    if (hi !== upper) { lines.push(rec(2, 0, 0x04, [(hi >> 8) & 0xff, hi & 0xff])); upper = hi; }
+    const chunk = Array.from(bytes.slice(i, i + perLine));
+    lines.push(rec(chunk.length, a & 0xffff, 0x00, chunk));
+  }
+  lines.push(rec(0, 0, 0x01, []));
+  return lines.join('\n');
+}
+
+group('Intel HEX', () => {
+  {
+    const bytes = new Uint8Array(1000);
+    for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 7) & 0xff;
+    const segs = parseIntelHex(makeHex(0, bytes));
+    check('consecutive records merge into one segment', segs.length === 1, `got ${segs.length}`);
+    check('starts where it was written', segs[0].addr === 0);
+    check('keeps every byte', segs[0].data.length === bytes.length, `${segs[0].data.length}`);
+    check('the bytes survive the round trip', segs[0].data.every((v, i) => v === bytes[i]));
+  }
+  {
+    const segs = parseIntelHex(makeHex(0x00011000, new Uint8Array([0x41, 0x42, 0x43, 0x44])));
+    check('an extended linear address raises the top half',
+      segs[0].addr === 0x00011000, '0x' + segs[0].addr.toString(16));
+  }
+  {
+    /* A gap has to break the segment, or the image would be written shifted. */
+    const a = makeHex(0x0000, new Uint8Array([1, 2, 3, 4])).replace(/\n:00000001FF$/, '');
+    const b = makeHex(0x2000, new Uint8Array([5, 6, 7, 8]));
+    const segs = parseIntelHex(a + '\n' + b);
+    check('a gap starts a new segment', segs.length === 2, `got ${segs.length}`);
+    check('the second segment keeps its address', segs[1].addr === 0x2000,
+      '0x' + segs[1].addr.toString(16));
+  }
+  rejects('a line without a colon is refused', () => parseIntelHex('00000001FF'), /does not start/);
+  rejects('an odd length is refused',          () => parseIntelHex(':0'),          /odd number/);
+  rejects('a bad checksum is refused',         () => parseIntelHex(':00000001FE'), /checksum/);
+  rejects('a file with no data is refused',    () => parseIntelHex(':00000001FF'), /no data records/);
+  {
+    /* Corrupting one byte of a real-looking file has to be caught: a truncated
+       download looks exactly like this. */
+    const good = makeHex(0, new Uint8Array([1, 2, 3, 4]));
+    const bad = good.replace('01020304', '01020305');
+    rejects('a single flipped byte is caught', () => parseIntelHex(bad), /checksum/);
+  }
+});
+
+group('Packet framing', () => {
+  const sums = (p, from, to) => Array.from(p.slice(from, to)).reduce((a, b) => a + b, 0) & 0xff;
+  {
+    const p = cmdPacket(CMD.SIG);
+    check('a command with no payload is 6 bytes', p.length === 6,
+      Array.from(p, b => b.toString(16).padStart(2, '0')).join(' '));
+    check('starts with SOH', p[0] === SOH);
+    check('the length counts the command byte', p[1] === 0 && p[2] === 1);
+    check('carries the command', p[3] === CMD.SIG);
+    check('ends with ETX', p[5] === ETX);
+    check('LNH through SUM add up to zero', sums(p, 1, 5) === 0);
+  }
+  {
+    const p = cmdPacket(CMD.AREA, new Uint8Array([0]));
+    check('a one byte payload makes a 7 byte packet', p.length === 7);
+    check('the length counts the payload too', p[1] === 0 && p[2] === 2);
+    check('LNH through SUM add up to zero', sums(p, 1, 6) === 0);
+  }
+  {
+    const payload = new Uint8Array(1024).fill(0xA5);
+    const p = cmdPacket(CMD.WRITE, payload);
+    check('a 1024 byte payload sets the high length byte', p[1] === 0x04 && p[2] === 0x01,
+      `${p[1]} ${p[2]}`);
+    check('LNH through SUM add up to zero', sums(p, 1, p.length - 1) === 0);
+  }
+  {
+    const p = dataPacket(CMD.WRITE, new Uint8Array([0xAA, 0xBB]));
+    check('a data packet starts with SOD', p[0] === SOD);
+    check('LNH through SUM add up to zero', sums(p, 1, p.length - 1) === 0);
+  }
+  check('frame builds either kind', frame(SOH, CMD.SIG, new Uint8Array(0))[0] === SOH &&
+                                    frame(SOD, CMD.SIG, new Uint8Array(0))[0] === SOD);
+});
+
+group('Byte order', () => {
+  {
+    const a = be32(0x12345678);
+    check('be32 is big endian', a[0] === 0x12 && a[1] === 0x34 && a[2] === 0x56 && a[3] === 0x78);
+    check('be32 handles the top bit', be32(0xFF000001)[0] === 0xFF);
+    check('rd32 comes back unsigned',
+      rd32(new Uint8Array([0xFF, 0, 0, 1]), 0) === 0xFF000001,
+      String(rd32(new Uint8Array([0xFF, 0, 0, 1]), 0)));
+    check('be32 and rd32 are inverses', rd32(be32(0xDEADBEEF), 0) === 0xDEADBEEF);
+  }
+});
+
+group('Device identities', () => {
+  check('the ROM boot firmware is 045B:0261', describe(RA_USB_BOOT) === '045B:0261', describe(RA_USB_BOOT));
+  check('a running sketch is 2886:806A',
+    describe(AKARENGA_UNO_R4_MINIMA) === '2886:806A', describe(AKARENGA_UNO_R4_MINIMA));
+  check('the DFU bootloader is 2886:006A',
+    describe(AKARENGA_UNO_R4_MINIMA_DFU) === '2886:006A', describe(AKARENGA_UNO_R4_MINIMA_DFU));
+  check('the three are distinct', new Set([
+    describe(RA_USB_BOOT), describe(AKARENGA_UNO_R4_MINIMA), describe(AKARENGA_UNO_R4_MINIMA_DFU),
+  ]).size === 3);
+});
+
+/* ── Summary ── */
+const s = document.getElementById('summary');
+s.className = fail ? 'fail' : 'pass';
+s.textContent = fail ? `${fail} failed, ${pass} passed` : `all ${pass} passed`;
+document.title = s.textContent;
+</script>
+</body>
+</html>

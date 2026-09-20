@@ -1,0 +1,98 @@
+:root{
+  --ink:#0f1113;
+  --panel:#16191c;
+  --panel-2:#1d2125;
+  --line:#2c3237;
+  --text:#dfe3e6;
+  --dim:#8b959c;
+  --brick:#a8402c;      /* red brick (akarenga) */
+  --brick-lit:#d05a41;
+  --tx:#c9a227;
+  --rx:#5aa9a0;
+  --ok:#6fbf73;
+  --bad:#d9534f;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", "Noto Sans Mono CJK JP", Menlo, monospace;
+  --ui: "Helvetica Neue", Arial, "Hiragino Sans", "Noto Sans JP", sans-serif;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ink); color:var(--text);
+  font-family:var(--ui); font-size:14px; line-height:1.6;
+}
+.wrap{max-width:980px; margin:0 auto; padding:32px 20px 64px}
+
+header{border-bottom:1px solid var(--line); padding-bottom:20px; margin-bottom:28px}
+h1{
+  font-family:var(--mono); font-size:26px; font-weight:600;
+  letter-spacing:-0.02em; margin:0 0 6px;
+}
+h1 .chip{
+  display:inline-block; background:var(--brick); color:#fff;
+  padding:1px 8px; border-radius:3px; font-size:15px; vertical-align:3px; margin-right:10px;
+}
+header p{margin:0; color:var(--dim); font-size:13px}
+
+section{margin-bottom:22px}
+.label{
+  font-family:var(--mono); font-size:11px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--dim); margin-bottom:8px;
+}
+.panel{background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:16px}
+
+.row{display:flex; gap:12px; flex-wrap:wrap; align-items:center}
+.row + .row{margin-top:12px}
+
+button{
+  font-family:var(--ui); font-size:14px; font-weight:600;
+  background:var(--panel-2); color:var(--text);
+  border:1px solid var(--line); border-radius:5px;
+  padding:9px 18px; cursor:pointer;
+}
+button:hover:not(:disabled){border-color:var(--brick-lit)}
+button:disabled{opacity:.4; cursor:not-allowed}
+button.primary{background:var(--brick); border-color:var(--brick); color:#fff}
+button.primary:hover:not(:disabled){background:var(--brick-lit)}
+button:focus-visible, input:focus-visible, select:focus-visible{outline:2px solid var(--brick-lit); outline-offset:2px}
+
+select, input[type=text]{
+  font-family:var(--mono); font-size:13px;
+  background:var(--panel-2); color:var(--text);
+  border:1px solid var(--line); border-radius:5px; padding:8px 10px;
+}
+input[type=text]{min-width:260px; flex:1}
+label.opt{display:flex; align-items:center; gap:6px; color:var(--dim); font-size:13px}
+
+.drop{
+  border:1px dashed var(--line); border-radius:6px; padding:22px;
+  text-align:center; color:var(--dim); cursor:pointer; font-family:var(--mono); font-size:13px;
+}
+.drop.has{border-style:solid; border-color:var(--brick); color:var(--text)}
+.drop.over{border-color:var(--brick-lit); background:var(--panel-2)}
+
+/* the packet log, which is the point of the page */
+#log{
+  background:#0b0d0e; border:1px solid var(--line); border-radius:6px;
+  font-family:var(--mono); font-size:12px; line-height:1.5;
+  height:340px; overflow-y:auto; padding:12px; white-space:pre-wrap; word-break:break-all;
+}
+#log .t{color:#5a6469; margin-right:8px}
+#log .tx{color:var(--tx)}
+#log .rx{color:var(--rx)}
+#log .info{color:var(--text)}
+#log .ok{color:var(--ok)}
+#log .err{color:var(--bad)}
+#log .dim{color:var(--dim)}
+
+.bar{height:4px; background:var(--panel-2); border-radius:2px; overflow:hidden; margin-top:14px}
+.bar > i{display:block; height:100%; width:0; background:var(--brick-lit); transition:width .15s linear}
+
+.stat{display:flex; gap:22px; flex-wrap:wrap; font-family:var(--mono); font-size:12px; color:var(--dim); margin-top:10px}
+.stat b{color:var(--text); font-weight:600}
+
+details{margin-top:10px}
+summary{cursor:pointer; color:var(--dim); font-size:13px}
+details p, details li{color:var(--dim); font-size:13px}
+code{font-family:var(--mono); color:var(--text); background:var(--panel-2); padding:1px 5px; border-radius:3px}
+
+.warn{border-left:2px solid var(--brick); padding-left:12px; color:var(--dim); font-size:13px}
+@media (prefers-reduced-motion: reduce){*{transition:none !important}}

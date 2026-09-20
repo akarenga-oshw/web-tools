@@ -33,3 +33,24 @@ Measuring over USB measures the crystal *at the temperature USB puts it*. A
 tuning-fork crystal loses roughly 0.034 ppm per degree squared away from 25°C,
 so self-heating alone moves the figure. For the number that matters to a battery
 powered board, set the time, unplug, run on backup power overnight, and reconnect.
+
+## Tests
+
+<https://akarenga-oshw.github.io/web-tools/tests/>
+
+The flasher can leave a part unable to accept another image, so the parts that
+decide what gets written are worth checking, and worth being able to check
+yourself. That page runs in your browser with no board attached: it feeds
+generated Intel HEX back through the parser, corrupts a byte to confirm the
+corruption is caught, and verifies the length and checksum fields of the packets
+against what the protocol specifies.
+
+What it cannot cover is the conversation with a real part — the synchronisation
+sequence, the timeouts, which parts send a trailing OK. Those need hardware.
+
+Run them locally with any static server, which is also how to use the tools
+themselves without publishing anything:
+
+```
+python3 -m http.server
+```
