@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,7 +12,7 @@
     --line:#2c3237;
     --text:#dfe3e6;
     --dim:#8b959c;
-    --brick:#a8402c;      /* 赤煉瓦 */
+    --brick:#a8402c;      /* red brick (akarenga) */
     --brick-lit:#d05a41;
     --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", "Noto Sans Mono CJK JP", Menlo, monospace;
     --ui: "Helvetica Neue", Arial, "Hiragino Sans", "Noto Sans JP", sans-serif;
@@ -53,7 +53,6 @@
     border-left:2px solid var(--line); padding:2px 0 2px 14px;
     color:var(--dim); font-size:13px; margin:24px 0 0;
   }
-  code{font-family:var(--mono); font-size:.92em; color:var(--text)}
   footer{margin-top:40px; padding-top:16px; border-top:1px solid var(--line); color:var(--dim); font-size:12px}
   footer a{color:var(--dim)}
 </style>
@@ -63,31 +62,31 @@
 
   <header>
     <h1><span class="chip">akarenga</span>web tools</h1>
-    <p>ブラウザから基板を扱うツール。インストール不要、Chrome か Edge で開きます。</p>
+    <p>Work with a board from the browser. Nothing to install; open in Chrome or Edge.</p>
   </header>
 
-  <h2>Renesas RA 全般</h2>
+  <h2>Renesas RA</h2>
 
   <a class="tool" href="./renesas-ra-flasher/">
     <div class="name">renesas-ra-flasher</div>
     <p class="desc">
-      標準ブートファームウェア経由でフラッシュに書き込みます。検証済みは RA4M1 のみ。
+      Writes flash over the standard boot firmware. Verified on RA4M1.
     </p>
   </a>
 
-  <h2>シリアルを持つ基板全般</h2>
+  <h2>Any board with a serial port</h2>
 
   <a class="tool" href="./usb-time-sync/">
     <div class="name">usb-time-sync</div>
     <p class="desc">
-      PC の時刻を基板の RTC に設定し、以後のずれを ppm で表示します。
+      Sets a board's RTC from the host clock, then reports the drift in ppm.
     </p>
   </a>
 
   <p class="note">
-    どちらも <a href="https://developer.mozilla.org/ja/docs/Web/API/Web_Serial_API">Web Serial</a>
-    を使います。Firefox と Safari、および Android は未対応です。
-    通信はブラウザと基板の間だけで完結し、サーバには何も送られません。
+    Both use <a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API">Web Serial</a>,
+    which Firefox, Safari and Android do not implement. Everything happens between
+    the browser and the board; nothing is sent to a server.
   </p>
 
   <footer>
