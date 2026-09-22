@@ -40,11 +40,11 @@ export function plan(segments, areas) {
 
   /* Erase works in whole blocks and write works in whole units, and what is
      written must never reach past what was erased.
-     Both sizes are powers of two on the parts this has been pointed at, so the
+     An RA4M1 reports 2048/8 for code flash and 1024/1 for data flash, so the
      range is already a whole number of write units and this loop does not run.
-     That is an inference from one measured part, not a guarantee: Area Info
-     reports a single erase size per area, and what a part with non-uniform
-     blocks answers is unknown. Hence a loop rather than an assertion. */
+     That is two areas on one part, not a guarantee: Area Info reports a single
+     erase size per area, and what a part with non-uniform blocks answers is
+     unknown. Hence a loop rather than an assertion. */
   let end = Math.ceil((max + 1) / code.eau) * code.eau - 1;
   while ((end - start + 1) % code.wau !== 0) end += code.eau;
   if (end > code.ead) throw new Error('the file runs past the end of code flash once the ' +

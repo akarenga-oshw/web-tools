@@ -209,11 +209,13 @@ export class Boot {
     this.tr.flush();
     await this.tr.write(cmdPacket(CMD.WRITE, p));
     await this._recv(5000);
-    /* The protocol allows 1024 bytes of data per packet, and a real RA4M1 in
-       USB boot mode answered none of them: no error status either, which is
-       what a part still waiting for the rest of a packet looks like. Smaller
-       packets at 256 leave less to lose if the receive buffer behind the CDC
-       endpoint is shallower than the protocol's limit. */
+    /* The protocol allows 1024 bytes per data packet and an RA4M1 in USB boot
+       mode answers none of them - not even an error status, which is what a
+       part still waiting for the rest of a packet looks like. At 256 it answers
+       every one. The limit is on what it can receive, not on the protocol: read
+       replies come back as 1024 byte packets from the same part without
+       trouble. 256 costs about 0.3 s for a 14 KB image, so there has been no
+       reason to find where between the two it actually breaks. */
     const CH = 256;
     for (let off = 0; off < image.length; off += CH) {
       const chunk = image.slice(off, Math.min(off + CH, image.length));

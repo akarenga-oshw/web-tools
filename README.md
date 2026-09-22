@@ -19,9 +19,15 @@ Serial.
 The flash geometry is not hardcoded: the tool asks the boot firmware for it at
 runtime (Signature `0x3A`, Area Info `0x3B`), so the protocol layer is
 family-generic. **Verified is a different claim from generic**, and only RA4M1
-has been tried. On anything else, read the area information by all means, but
-treat writing as untested — this tool can leave a part unable to accept another
-one.
+has been tried — erase, write and verify, over USB boot mode, against a part
+reporting 256 KB of code flash in 2048 byte blocks. On anything else, read the
+area information by all means, but treat writing as untested: this tool can
+leave a part unable to accept another one.
+
+Write data goes out in 256 byte packets rather than the 1024 the protocol
+allows, because an RA4M1 in USB boot mode acknowledges none of the larger ones.
+It sends 1024 byte packets back on a read without trouble, so the limit is on
+what it can receive.
 
 ### What it refuses
 
