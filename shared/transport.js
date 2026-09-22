@@ -64,8 +64,14 @@ export class Transport {
   async want(n, timeout = 2000) {
     const end = performance.now() + timeout;
     while (this.buf.length < n) {
-      if (performance.now() > end)
-        throw new Error(`receive timeout, waiting for ${n} bytes, have ${this.buf.length}`);
+      if (performance.now() > end) {
+        /* What did arrive is the whole diagnosis: a part answering 0x00 to a
+           command is in a different state from one answering nothing, and the
+           count alone does not say which. */
+        const got = Array.from(this.buf, b => b.toString(16).padStart(2, '0').toUpperCase());
+        throw new Error(`receive timeout, waiting for ${n} bytes, have ${this.buf.length}` +
+          (got.length ? ': ' + got.join(' ') : ''));
+      }
       await new Promise(r => setTimeout(r, 4));
     }
     const out = this.buf.slice(0, n);

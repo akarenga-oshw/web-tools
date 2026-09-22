@@ -105,9 +105,36 @@ export class Boot {
     throw new Error('no answer. Check the MD pin, the wiring, and when reset is released.');
   }
 
+  /**
+   * Get the part to the point where it accepts commands.
+   *
+   * The Inquiry is answered with a packet by a part that is already there. One
+   * that is not answers with a single 0x00 - not a packet, so waiting for a
+   * whole one just times out - and wants 0x55, which it answers with the boot
+   * code 0xC3. That exchange is needed over USB as well as over UART; only the
+   * run of 0x00 bytes that UART starts with can be skipped.
+   */
   async enterCommandPhase() {
+    this.tr.flush();
+    await this.tr.write(cmdPacket(CMD.INQUIRY, new Uint8Array(0)));
+
+    const first = await this.tr.want(1, 1500).catch(() => null);
+    if (!first || first[0] !== SOD) {
+      this.log('info', first
+        ? `answered 0x${first[0].toString(16).padStart(2, '0')}, not a packet; sending 0x55`
+        : 'no answer to the Inquiry; sending 0x55');
+      this.tr.flush();
+      await this.tr.write(new Uint8Array([0x55]));
+      const b = await this.tr.want(1, 2000);
+      if (b[0] !== 0xC3)
+        throw new Error(`expected the boot code 0xC3, got 0x${b[0].toString(16)}`);
+      this.log('ok', 'connected, boot code 0xC3');
+      return;
+    }
+
+    /* The first byte was SOD, so a reply is on its way; read the rest of it. */
     try {
-      await this.command(CMD.INQUIRY, new Uint8Array(0), 1500);
+      await this._recvAfterSod(first, 1500);
       this.log('ok', 'in the command phase, no ID authentication needed');
     } catch (e) {
       /* A flow error here is the part saying it wants an ID, not a failure. */
@@ -116,6 +143,25 @@ export class Boot {
       await this.command(CMD.ID_AUTH, new Uint8Array(16).fill(0xFF), 3000);
       this.log('ok', 'ID authentication accepted');
     }
+  }
+
+  /** Finish reading a reply whose first byte has already been taken. */
+  async _recvAfterSod(sod, timeout) {
+    const rest = await this.tr.want(2, timeout);
+    const len = (rest[0] << 8) | rest[1];
+    const tail = await this.tr.want(len + 2, timeout);
+    const full = new Uint8Array(3 + len + 2);
+    full.set(sod); full.set(rest, 1); full.set(tail, 3);
+    if (this.onRx) this.onRx(full);
+    if (full[full.length - 1] !== ETX) throw new Error('no ETX');
+    let sum = 0; for (let i = 1; i < 3 + len; i++) sum = (sum + full[i]) & 0xff;
+    if (((sum + full[3 + len]) & 0xff) !== 0) throw new Error('checksum mismatch in the reply');
+    const res = full[3], body = full.slice(4, 3 + len);
+    if (res & 0x80) {
+      const code = body[0];
+      throw new Error(`device error: ${STS[code] || 'unknown'} (0x${code.toString(16).toUpperCase()})`);
+    }
+    return { res, body };
   }
 
   async signature() {

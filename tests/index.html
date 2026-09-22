@@ -32,7 +32,7 @@
 
 <script type="module">
 import { parseIntelHex } from '../renesas-ra-flasher/hex.js';
-import { frame, cmdPacket, dataPacket, be32, rd32, CMD, SOH, SOD, ETX }
+import { frame, cmdPacket, dataPacket, be32, rd32, CMD, SOH, SOD, ETX, Boot }
   from '../renesas-ra-flasher/boot.js';
 import { plan } from '../renesas-ra-flasher/plan.js';
 import { sha256Hex } from '../shared/digest.js';
@@ -59,9 +59,12 @@ function rejects(name, fn, re) {
 /* Run a group in isolation. Without this, one throw outside a check() ends the
    whole page and the remaining groups silently never run, which reads as a
    pass unless you count the cases. */
-function group(name, body) {
+async function group(name, body) {
   const h = document.createElement('h2'); h.textContent = name; out.append(h);
-  try { body(); }
+  /* Awaited even when the body looks synchronous: an async body that is not
+     awaited finishes after the tally is printed, and its cases never appear.
+     A group that silently contributes nothing reads as a pass. */
+  try { await body(); }
   catch (e) { check(`${name} did not finish`, false, e && e.message ? e.message : String(e)); }
 }
 
@@ -86,7 +89,7 @@ function makeHex(addr, bytes, perLine = 16) {
   return lines.join('\n');
 }
 
-group('Intel HEX', () => {
+await group('Intel HEX', () => {
   {
     const bytes = new Uint8Array(1000);
     for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 7) & 0xff;
@@ -123,7 +126,7 @@ group('Intel HEX', () => {
   }
 });
 
-group('Packet framing', () => {
+await group('Packet framing', () => {
   const sums = (p, from, to) => Array.from(p.slice(from, to)).reduce((a, b) => a + b, 0) & 0xff;
   {
     const p = cmdPacket(CMD.SIG);
@@ -157,7 +160,7 @@ group('Packet framing', () => {
                                     frame(SOD, CMD.SIG, new Uint8Array(0))[0] === SOD);
 });
 
-group('Byte order', () => {
+await group('Byte order', () => {
   {
     const a = be32(0x12345678);
     check('be32 is big endian', a[0] === 0x12 && a[1] === 0x34 && a[2] === 0x56 && a[3] === 0x78);
@@ -169,7 +172,7 @@ group('Byte order', () => {
   }
 });
 
-group('Device identities', () => {
+await group('Device identities', () => {
   check('the ROM boot firmware is 045B:0261', describe(RA_USB_BOOT) === '045B:0261', describe(RA_USB_BOOT));
   check('a running sketch is 2886:806A',
     describe(AKARENGA_UNO_R4_MINIMA) === '2886:806A', describe(AKARENGA_UNO_R4_MINIMA));
@@ -180,7 +183,7 @@ group('Device identities', () => {
   ]).size === 3);
 });
 
-group('Planning a write', () => {
+await group('Planning a write', () => {
   const CODE = { koa: 0, kind: 'code flash', sad: 0x00000000, ead: 0x0003FFFF, eau: 2048, wau: 8 };
   const seg = (addr, len, fill = 0xA5) => ({ addr, data: new Uint8Array(len).fill(fill) });
 
@@ -271,10 +274,55 @@ group('Planning a write', () => {
   }
 });
 
-/* sha256Hex is async, so this group awaits rather than returning. */
-await (async () => {
-  const h = document.createElement('h2'); h.textContent = 'Digest'; out.append(h);
-  try {
+/* A transport that replays scripted bytes, so the exchange with a part can be
+   checked without one. */
+class FakeTransport {
+  constructor(replies = []) { this.sent = []; this.buf = new Uint8Array(0); this.replies = replies; }
+  flush() { this.buf = new Uint8Array(0); }
+  async write(bytes) {
+    this.sent.push(Array.from(bytes));
+    const next = this.replies.shift();
+    if (next) { const n = new Uint8Array(this.buf.length + next.length);
+                n.set(this.buf); n.set(next, this.buf.length); this.buf = n; }
+  }
+  async want(n) {
+    if (this.buf.length < n) {
+      const e = new Error(`receive timeout, waiting for ${n} bytes, have ` +
+        `${this.buf.length}${this.buf.length ? ': ' + Array.from(this.buf,
+          b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ') : ''}`);
+      throw e;
+    }
+    const out = this.buf.slice(0, n); this.buf = this.buf.slice(n); return out;
+  }
+  async reopen() {}
+}
+
+await group('Entering the command phase', async () => {
+  const hexOf = a => a.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+  const okReply = [0x81, 0x00, 0x01, 0x00, 0xFF, 0x03];
+
+  /* A part that has not been talked to yet answers the Inquiry with a single
+     0x00, not a packet. The reply to that is 0x55, and it answers 0xC3. */
+  await (async () => {
+    const tr = new FakeTransport([[0x00], [0xC3]]);
+    const b = new Boot(tr);
+    await b.enterCommandPhase();
+    check('sends the Inquiry first', hexOf(tr.sent[0]) === '01 00 01 00 FF 03', hexOf(tr.sent[0]));
+    check('answers a bare 0x00 with 0x55', hexOf(tr.sent[1]) === '55', hexOf(tr.sent[1] || []));
+  })();
+
+  /* A part already in the command phase answers with a packet, and must not be
+     sent 0x55 on top of it. */
+  await (async () => {
+    const tr = new FakeTransport([okReply]);
+    const b = new Boot(tr);
+    await b.enterCommandPhase();
+    check('leaves a part that already answers alone', tr.sent.length === 1, `${tr.sent.length} writes`);
+  })();
+});
+
+await group('Digest', async () => {
+  {
     const enc = new TextEncoder();
     /* The published release note carries the SHA-256 of the .hex file, so what
        the page shows has to be the digest of the bytes as downloaded. */
@@ -288,10 +336,8 @@ await (async () => {
       /^[0-9a-f]{64}$/.test(await sha256Hex(enc.encode('x'))));
     check('accepts an ArrayBuffer as well as a view',
       await sha256Hex(enc.encode('abc').buffer) === await sha256Hex(enc.encode('abc')));
-  } catch (e) {
-    check('Digest did not finish', false, e && e.message ? e.message : String(e));
   }
-})();
+});
 
 /* ── Summary ── */
 const s = document.getElementById('summary');

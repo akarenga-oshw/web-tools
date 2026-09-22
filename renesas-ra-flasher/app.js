@@ -98,8 +98,9 @@ $('btnConnect').onclick = async () => {
     await tr.open(Object.assign({ baudRate: 9600, parity: 'none' }, portOpts));
     boot = new Boot(tr, { log, onRx: logRx });
     log('ok', 'connected' + (usb.usbVendorId != null ? ` (${describe(usb)})` : ''));
+    /* UART needs the run of 0x00 bytes first; USB does not, but both still go
+       through enterCommandPhase for the 0x55 exchange. */
     if ($('mode').value === 'uart') await boot.sync(portOpts);
-    else log('info', 'USB boot mode: no synchronisation sequence, starting at Inquiry');
     await boot.enterCommandPhase();
     await probe();
   } catch (e) {
