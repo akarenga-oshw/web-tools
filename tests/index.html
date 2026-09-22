@@ -34,6 +34,8 @@
 import { parseIntelHex } from '../renesas-ra-flasher/hex.js';
 import { frame, cmdPacket, dataPacket, be32, rd32, CMD, SOH, SOD, ETX }
   from '../renesas-ra-flasher/boot.js';
+import { plan } from '../renesas-ra-flasher/plan.js';
+import { sha256Hex } from '../shared/digest.js';
 import { RA_USB_BOOT, AKARENGA_UNO_R4_MINIMA, AKARENGA_UNO_R4_MINIMA_DFU, describe }
   from '../shared/devices.js';
 
@@ -177,6 +179,119 @@ group('Device identities', () => {
     describe(RA_USB_BOOT), describe(AKARENGA_UNO_R4_MINIMA), describe(AKARENGA_UNO_R4_MINIMA_DFU),
   ]).size === 3);
 });
+
+group('Planning a write', () => {
+  const CODE = { koa: 0, kind: 'code flash', sad: 0x00000000, ead: 0x0003FFFF, eau: 2048, wau: 8 };
+  const seg = (addr, len, fill = 0xA5) => ({ addr, data: new Uint8Array(len).fill(fill) });
+
+  {
+    const p = plan([seg(0, 100)], [CODE]);
+    check('erases from the start of the containing block', p.start === 0, '0x' + p.start.toString(16));
+    check('erases to the end of the containing block', p.end === 2047, p.end);
+    check('the image covers the erased range', p.image.length === 2048, p.image.length);
+  }
+  {
+    /* Rounding has to go outwards at both ends, or the erase would leave part
+       of the image sitting in a block that was never cleared. */
+    const p = plan([seg(2040, 20)], [CODE]);
+    check('rounds down to the block the data starts in', p.start === 0, '0x' + p.start.toString(16));
+    check('rounds up past the block it ends in', p.end === 4095, p.end);
+    check('spans both blocks', p.image.length === 4096, p.image.length);
+  }
+  {
+    const p = plan([seg(0, 4, 0x11), seg(64, 4, 0x22)], [CODE]);
+    check('places each segment at its own offset',
+      p.image[0] === 0x11 && p.image[64] === 0x22, `${p.image[0]} ${p.image[64]}`);
+    check('fills the gap with 0xFF', p.image[4] === 0xFF && p.image[63] === 0xFF);
+    check('fills past the last byte with 0xFF', p.image[68] === 0xFF);
+  }
+  {
+    const p = plan([seg(0x8000, 16)], [CODE]);
+    check('a block well past zero is not rounded to zero', p.start === 0x8000,
+      '0x' + p.start.toString(16));
+    check('offsets are relative to start, not to zero', p.image[0] === 0xA5, p.image[0]);
+  }
+
+  /* Writing an ID code into the config area can disable serial programming for
+     good, so a file that reaches into it has to stop the write rather than be
+     quietly trimmed to the part that fits. */
+  const CONFIG = { koa: 2, kind: 'config', sad: 0x01010008, ead: 0x01010033, eau: 0, wau: 4 };
+  rejects('a segment inside the config area stops the write',
+    () => plan([seg(0, 16), seg(0x01010008, 4)], [CODE, CONFIG]), /config/i);
+  rejects('overlapping the config area by one byte is enough',
+    () => plan([seg(0x01010033, 1)], [CODE, CONFIG]), /config/i);
+  rejects('a segment that runs into the config area stops the write',
+    () => plan([seg(0x01010000, 16)], [CODE, CONFIG]), /config/i);
+
+  /* Only code flash is ever written, so a file reaching anywhere else would be
+     written in part and reported as done. Refuse instead of trimming. */
+  const DATA = { koa: 1, kind: 'data flash', sad: 0x40100000, ead: 0x40101FFF, eau: 1024, wau: 4 };
+  rejects('a segment in data flash stops the write',
+    () => plan([seg(0, 16), seg(0x40100000, 8)], [CODE, DATA]), /data flash/i);
+  rejects('a segment in no area at all stops the write',
+    () => plan([seg(0, 16), seg(0x90000000, 8)], [CODE, DATA]), /outside/i);
+  rejects('a segment running past the end of code flash stops the write',
+    () => plan([seg(0x0003FFF8, 16)], [CODE]), /outside|past/i);
+  rejects('a file with nothing in code flash stops the write',
+    () => plan([seg(0x40100000, 8)], [CODE, DATA]), /data flash/i);
+  rejects('a part reporting no code flash stops the write',
+    () => plan([seg(0, 16)], [DATA]), /code flash/i);
+
+  {
+    /* The boundary itself is fine: the last byte of code flash is writable. */
+    const p = plan([seg(0x0003FFFC, 4)], [CODE]);
+    check('the very last block of code flash is allowed', p.end === 0x0003FFFF,
+      '0x' + p.end.toString(16));
+  }
+  {
+    /* Not every part reports a config area, and one that does not must still
+       be writable. */
+    const p = plan([seg(0, 16)], [CODE]);
+    check('a part with no config area still plans a write', p.image.length === 2048);
+  }
+  {
+    /* The write command takes whole write units. An erase block is a multiple
+       of one on every part seen so far, but the image is what gets sent, so
+       check it rather than assume. */
+    const p = plan([seg(0, 100)], [CODE]);
+    check('the image is a whole number of write units',
+      p.image.length % CODE.wau === 0, `${p.image.length} % ${CODE.wau}`);
+  }
+  {
+    /* What is written must never reach past what was erased, so when the erase
+       block is not a multiple of the write unit the erased range has to grow,
+       not the image alone. */
+    const ODD = Object.assign({}, CODE, { eau: 100, wau: 8 });
+    const p = plan([seg(0, 10)], [ODD]);
+    check('the image is a whole number of write units', p.image.length % 8 === 0, p.image.length);
+    check('the image fills the erased range exactly',
+      p.image.length === p.end - p.start + 1, `${p.image.length} vs ${p.end - p.start + 1}`);
+    check('the erased range is a whole number of erase blocks',
+      (p.end - p.start + 1) % 100 === 0, p.end - p.start + 1);
+  }
+});
+
+/* sha256Hex is async, so this group awaits rather than returning. */
+await (async () => {
+  const h = document.createElement('h2'); h.textContent = 'Digest'; out.append(h);
+  try {
+    const enc = new TextEncoder();
+    /* The published release note carries the SHA-256 of the .hex file, so what
+       the page shows has to be the digest of the bytes as downloaded. */
+    check('matches the known digest of the empty input',
+      await sha256Hex(new Uint8Array(0)) ===
+        'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+    check('matches the known digest of "abc"',
+      await sha256Hex(enc.encode('abc')) ===
+        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+    check('is lower case hex, 64 characters',
+      /^[0-9a-f]{64}$/.test(await sha256Hex(enc.encode('x'))));
+    check('accepts an ArrayBuffer as well as a view',
+      await sha256Hex(enc.encode('abc').buffer) === await sha256Hex(enc.encode('abc')));
+  } catch (e) {
+    check('Digest did not finish', false, e && e.message ? e.message : String(e));
+  }
+})();
 
 /* ── Summary ── */
 const s = document.getElementById('summary');

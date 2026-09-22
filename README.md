@@ -23,6 +23,30 @@ has been tried. On anything else, read the area information by all means, but
 treat writing as untested — this tool can leave a part unable to accept another
 one.
 
+### What it refuses
+
+A file for the wrong board is easier to pick up than a malicious one, and both
+end the same way. Rather than write the part of a file that happens to fit, the
+page works out the whole write first and refuses if anything is off:
+
+- **Anything reaching into the config area.** An ID code written there can
+  disable serial programming for good: the part answers `0xDC` from then on and
+  no erase undoes it. Recovery needs SWD, if the settings even allow that.
+- **Anything outside code flash**, including data flash. Only code flash is
+  written, so the rest of the file would be silently dropped and the result
+  reported as done.
+- **A file whose erase range would run past the end of code flash.**
+
+The area addresses come from the part itself, not from a table here, so this
+holds on a part whose flash is laid out differently.
+
+The page also shows the SHA-256 of the file it loaded. Releases publish the same
+digest, so the two can be read against each other before anything is erased.
+
+Firmware is loaded from your own disk. There is no URL box: a link that fetches
+and flashes is a way to write an arbitrary binary to someone else's board, and a
+file you picked yourself is one you can see the provenance of.
+
 ## usb-time-sync
 
 The board prints its time on its own one-second boundary; the page records when
